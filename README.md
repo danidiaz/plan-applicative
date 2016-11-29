@@ -1,2 +1,2 @@
-# cumaean
-A writer-like Arrow/Applicative for tracking progess and estimating resources.
+# plan-applicative
+A writer-like Applicative/Arrow for tracking progess and estimating resources.
