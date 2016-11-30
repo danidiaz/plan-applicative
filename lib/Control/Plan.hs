@@ -71,3 +71,8 @@ planK f = Plan mempty (Star (lift . f))
 planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
+-- TODO:
+-- foldSteps catamorphism
+-- stepsToTree
+-- some kind of run-in-io function to avoid having to always import streaming  
+-- ArrowChoice instance? 
