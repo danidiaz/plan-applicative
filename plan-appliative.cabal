@@ -1,7 +1,7 @@
 name:                plan-applicative
 version:             0.0.0.0
-synopsis:            Writer-like Applicative/Arrow for progress tracking and static analysis.
-description:         Writer-like Applicative/Arrow for progress tracking and static analysis.
+synopsis:            Applicative/Arrow for progress tracking and static analysis.
+description:         A writer-like Applicative/Arrow for progress tracking and static analysis.
 license:             BSD3
 license-file:        LICENSE
 author:              Daniel Diaz

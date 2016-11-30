@@ -13,47 +13,61 @@ import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming.Prelude (Stream,Of(..),yield)
 
-data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
+data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of (Tick,s)) m) a b) deriving Functor
 
-data Plan s m a b = Plan (Forest s) (Star (Stream (Of (Tick,s)) m) a b) deriving Functor
+instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
+    pure x = Plan mempty (pure x)
+    Plan forest1 f <*> Plan forest2 x = Plan (forest1 `mappend` forest2) (f <*> x)
 
-getSteps :: Plan s m a b -> Forest s
-getSteps (Plan forest _) = forest
-
-runPlan :: Plan s m a b -> a -> Stream (Of (Tick,s)) m b
-runPlan (Plan _ (Star f)) = f
-
-instance Monad m => Applicative (Plan s m a) where
-    pure x = Plan [] (pure x)
-    Plan forest1 f <*> Plan forest2 x = Plan (forest1 ++ forest2) (f <*> x)
-
-instance Monad m => Category (Plan s m) where
-    id = Plan [] (Star (runKleisli id))
+instance (Monoid w,Monad m) => Category (Plan w s m) where
+    id = Plan mempty (Star (runKleisli id))
     (Plan forest1 (Star f1)) . (Plan forest2 (Star f2)) = 
-        Plan (forest2 ++ forest1) (Star (f2 >=> f1))
+        Plan (forest2 `mappend` forest1) (Star (f2 >=> f1))
 
-instance Monad m => Arrow (Plan s m) where
-    arr f = Plan [] (Star (runKleisli (arr f)))
+instance (Monoid w,Monad m) => Arrow (Plan w s m) where
+    arr f = Plan mempty (Star (runKleisli (arr f)))
     first (Plan forest (Star f)) =  Plan forest (Star (runKleisli (first (Kleisli f))))
 
-instance Monad m => Profunctor (Plan s m) where
-    lmap f plan = f ^>> plan
-    rmap f plan = plan >>^ f
+instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
+    lmap f p = f ^>> p
+    rmap f p = p >>^ f
 
-step :: Monad m => s -> Plan s m a b -> Plan s m a b
+data Steps w e = Steps w [(e, Steps w e,w)] deriving Functor
+
+instance Monoid w => Monoid (Steps w e) where
+    mempty = Steps mempty [] 
+    Steps w1 [] `mappend` Steps w2 s2 = Steps (w1 `mappend` w2) s2
+    Steps w1 s1 `mappend` Steps w2 s2 = Steps w1 (mappendAtTheEnd s1 w2 ++ s2)
+        where
+        mappendAtTheEnd ((e,s,w'):[]) w = (e,s,w' `mappend` w) : []
+        mappendAtTheEnd (l:ls)        w = l : mappendAtTheEnd ls w
+        mappendAtTheEnd []            _ = error "should never happen"
+
+data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
+
+getSteps :: Plan w s m a b -> Steps w s
+getSteps (Plan forest _) = forest
+
+runPlan :: Plan w s m a b -> a -> Stream (Of (Tick,s)) m b
+runPlan (Plan _ (Star f)) = f
+
+step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
-    Plan [Node s forest] 
+    Plan (Steps mempty [(s,forest,mempty)]) 
          (Star (\x -> yield (Starting,s) *> f x <* yield (Finished,s)))
 
-plan :: Monad m => m b -> Plan s m a b
-plan x = Plan [] (Star (const (lift x))) 
+foretell :: (Monoid w,Monad m) => w -> Plan w s m a ()
+foretell w = Plan (Steps w []) (pure ())  
 
-planIO :: MonadIO m => IO b -> Plan s m a b
-planIO x = Plan [] (Star (const (liftIO x))) 
+plan :: (Monoid w,Monad m) => m b -> Plan w s m a b
+plan x = Plan mempty (Star (const (lift x))) 
 
-planK :: Monad m => (a -> m b) -> Plan s m a b
-planK f = Plan [] (Star (lift . f)) 
+planIO :: (Monoid w,MonadIO m) => IO b -> Plan w s m a b
+planIO x = Plan mempty (Star (const (liftIO x))) 
 
-planKIO :: MonadIO m => (a -> IO b) -> Plan s m a b
-planKIO f = Plan [] (Star (liftIO . f)) 
+planK :: (Monoid w,Monad m) => (a -> m b) -> Plan w s m a b
+planK f = Plan mempty (Star (lift . f)) 
+
+planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
+planKIO f = Plan mempty (Star (liftIO . f)) 
 
