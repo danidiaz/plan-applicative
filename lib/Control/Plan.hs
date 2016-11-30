@@ -13,14 +13,14 @@ import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming.Prelude (Stream,Of(..),yield)
 
-data Progress s = Starting s | Finished s deriving (Eq,Ord,Show)
+data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
-data Plan s m a b = Plan (Forest s) (Star (Stream (Of (Progress s)) m) a b) deriving Functor
+data Plan s m a b = Plan (Forest s) (Star (Stream (Of (Tick,s)) m) a b) deriving Functor
 
 getSteps :: Plan s m a b -> Forest s
 getSteps (Plan forest _) = forest
 
-runPlan :: Plan s m a b -> a -> Stream (Of (Progress s)) m b
+runPlan :: Plan s m a b -> a -> Stream (Of (Tick,s)) m b
 runPlan (Plan _ (Star f)) = f
 
 instance Monad m => Applicative (Plan s m a) where
@@ -43,7 +43,7 @@ instance Monad m => Profunctor (Plan s m) where
 step :: Monad m => s -> Plan s m a b -> Plan s m a b
 step s (Plan forest (Star f)) = 
     Plan [Node s forest] 
-         (Star (\x -> yield (Starting s) *> f x <* yield (Finished s)))
+         (Star (\x -> yield (Starting,s) *> f x <* yield (Finished,s)))
 
 plan :: Monad m => m b -> Plan s m a b
 plan x = Plan [] (Star (const (lift x))) 
@@ -57,19 +57,3 @@ planK f = Plan [] (Star (lift . f))
 planKIO :: MonadIO m => (a -> IO b) -> Plan s m a b
 planKIO f = Plan [] (Star (liftIO . f)) 
 
-    -- first (Plan forest star)  *** (Plan forest2 star2) = Plan (forest1 ++ forest2) (liftA2 (,) star1 star2)
-
--- foretell :: Monoid w => Plan p w m a b -> p -> Plan p w m a b
--- foretell (Plan ts k) r = Plan (Forest' mempty [Tree' r ts] mempty) k
--- 
--- preface :: Monoid w => Plan p w m a b -> w -> Plan p w m a b
--- preface (Plan (Forest' w1 p w2) k) w = Plan (Forest' (w <> w1) p w2) k
--- 
--- coda :: Monoid w => Plan p w m a b -> w -> Plan p w m a b
--- coda (Plan (Forest' w1 p w2) k) w = Plan (Forest' w1 p (w2 <> w)) k
-
--- tracker-arrow
--- Control.Arrow.Tracker
--- step
--- before
--- after
