@@ -31,8 +31,8 @@ steps.
 
 For the third problem, we need a channel that notifies you whenever a step of
 the computation starts or finishes. Bonus points if composite steps are
-allowed.
+supported.
 
-This library tries to alleviate the last two problems.
+This library tries to solve the last two problems.
 
 
