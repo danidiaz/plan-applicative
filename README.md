@@ -11,8 +11,8 @@ The following infuriating situations happen:
 
 - The script fails at minute 45 because of a syntax error.
 - The script fails at minute 45 because it requests some resource that isn't
-  available (a port number to listen on, perhaps an external command that isn't
-  installed) and its availability wasn't checked at script start time.
+  available (a port number on which to listen, or perhaps an external command that
+  isn't installed) and its availability wasn't checked at script start time.
 - It is difficult to determine at minute 45 how far the computation has
   progressed, because there are no logs, or the logs are too detailed and each
   step generates similar-looking lines.
