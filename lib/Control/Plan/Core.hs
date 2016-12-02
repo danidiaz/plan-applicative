@@ -90,6 +90,7 @@ planK f = Plan mempty (Star (lift . f))
 planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
+-- TODO Bifoldable (and Bitraversable) instances for Steps?
 -- TODO Separate analyzing/running sections in the docs.
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
