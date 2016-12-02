@@ -21,6 +21,7 @@ source-repository head
 
 library
   exposed-modules:     Control.Plan
+  exposed-modules:     Control.Plan.Core
   build-depends:
                        base          >= 4.6   && < 5,
                        containers    >= 0.5.7 && < 0.6,
