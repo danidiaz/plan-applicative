@@ -39,6 +39,11 @@ instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
 
 data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving Functor
 
+foldSteps :: (w -> Seq (e,r,w) -> r) -> Steps w e -> r
+foldSteps f = go
+    where
+    go (Steps w steps) = f w (fmap (\(e',steps',w') -> (e',go steps',w')) steps)
+
 instance Bifunctor Steps where
     first f (Steps w steps) = 
         let withStep (e,substeps,w') = (e,Bifunctor.first f substeps,f w') 
@@ -85,8 +90,7 @@ planK f = Plan mempty (Star (lift . f))
 planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
--- TODO:
--- foldSteps catamorphism
--- some kind of run-in-io function to avoid having to always import streaming  
--- Emit a tree Zipper with each tick. The nodes will be annotated.
--- ArrowChoice instance? 
+-- TODO Separate analyzing/running sections in the docs.
+-- TODO Some kind of run-in-io function to avoid having to always import streaming  
+-- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
+-- TODO ArrowChoice instance? 

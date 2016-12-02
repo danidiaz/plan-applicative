@@ -7,6 +7,7 @@ module Control.Plan (Plan
                     ,Tick(..)
                     -- * Analyzing and running plans
                     ,getSteps
+                    ,foldSteps
                     ,stepsToForest
                     ,runPlan
                     -- * Declaring steps and annotations
