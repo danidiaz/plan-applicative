@@ -4,6 +4,8 @@ module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
 import Data.Tree
+import qualified Data.Sequence as Seq
+import Data.Sequence (Seq)
 import Data.Profunctor (Profunctor(..),Star(..))
 import Control.Category
 import Control.Applicative
@@ -32,16 +34,14 @@ instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
-data Steps w e = Steps w [(e, Steps w e,w)] deriving Functor
+data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving Functor
 
 instance Monoid w => Monoid (Steps w e) where
-    mempty = Steps mempty [] 
-    Steps w1 [] `mappend` Steps w2 s2 = Steps (w1 `mappend` w2) s2
-    Steps w1 s1 `mappend` Steps w2 s2 = Steps w1 (mappendAtTheEnd s1 w2 ++ s2)
-        where
-        mappendAtTheEnd ((e,s,w'):[]) w = (e,s,w' `mappend` w) : []
-        mappendAtTheEnd (l:ls)        w = l : mappendAtTheEnd ls w
-        mappendAtTheEnd []            _ = error "should never happen"
+    mempty = Steps mempty mempty
+    Steps w1 s1 `mappend` Steps w2 s2 = 
+        case Seq.viewr s1 of
+            Seq.EmptyR          -> Steps (w1 `mappend` w2) s2
+            s1' Seq.:> (e,s,w') -> Steps w1 ((s1' Seq.|> (e,s,w' `mappend` w2)) `mappend` s2)
 
 data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
@@ -53,11 +53,11 @@ runPlan (Plan _ (Star f)) = f
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
-    Plan (Steps mempty [(s,forest,mempty)]) 
+    Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
          (Star (\x -> yield (Starting,s) *> f x <* yield (Finished,s)))
 
-foretell :: (Monoid w,Monad m) => w -> Plan w s m a ()
-foretell w = Plan (Steps w []) (pure ())  
+foretell :: (Monad m) => w -> Plan w s m a ()
+foretell w = Plan (Steps w mempty) (pure ())  
 
 plan :: (Monoid w,Monad m) => m b -> Plan w s m a b
 plan x = Plan mempty (Star (const (lift x))) 
