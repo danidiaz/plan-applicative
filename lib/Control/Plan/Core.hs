@@ -1,5 +1,7 @@
 {-# language DeriveFunctor #-}
 {-# language FlexibleInstances #-}
+{-# language DeriveFoldable #-}
+{-# language DeriveTraversable #-}
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
@@ -7,6 +9,8 @@ import qualified Data.Bifunctor as Bifunctor
 import Data.Bifunctor(Bifunctor)
 import Data.Tree
 import Data.Foldable
+import Data.Bifoldable
+import Data.Bitraversable
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Profunctor (Profunctor(..),Star(..))
@@ -37,12 +41,7 @@ instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
-data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving Functor
-
-foldSteps :: (w -> Seq (e,r,w) -> r) -> Steps w e -> r
-foldSteps f = go
-    where
-    go (Steps w steps) = f w (fmap (\(e',steps',w') -> (e',go steps',w')) steps)
+data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving (Functor,Foldable,Traversable)
 
 instance Bifunctor Steps where
     first f (Steps w steps) = 
@@ -50,12 +49,31 @@ instance Bifunctor Steps where
         in  Steps (f w) (fmap withStep steps)  
     second = fmap
 
+instance Bifoldable Steps where
+    bifoldMap f g (Steps w steps) = f w `mappend` foldMap (\(e,substeps,w') -> g e 
+                                                                               `mappend` 
+                                                                               bifoldMap f g substeps
+                                                                               `mappend` 
+                                                                               f w')
+                                                          steps
+
+instance Bitraversable Steps where
+    bitraverse f g (Steps w steps) = 
+        Steps <$> f w <*> traverse innertraverse steps  
+        where
+        innertraverse (e,substeps,w') = (,,) <$> g e <*> bitraverse f g substeps <*> f w' 
+    
 instance Monoid w => Monoid (Steps w e) where
     mempty = Steps mempty mempty
     Steps w1 s1 `mappend` Steps w2 s2 = 
         case Seq.viewr s1 of
             Seq.EmptyR          -> Steps (w1 `mappend` w2) s2
             s1' Seq.:> (e,s,w') -> Steps w1 ((s1' Seq.|> (e,s,w' `mappend` w2)) `mappend` s2)
+
+foldSteps :: (w -> Seq (e,r,w) -> r) -> Steps w e -> r
+foldSteps f = go
+    where
+    go (Steps w steps) = f w (fmap (\(e',steps',w') -> (e',go steps',w')) steps)
 
 data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
