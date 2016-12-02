@@ -1,12 +1,18 @@
+-- | This module exports the 'Plan' Applicative.
+
 {-# language DeriveFunctor #-}
 {-# language FlexibleInstances #-}
 module Control.Plan (Plan
                     ,Steps(..)
                     ,Tick(..)
+                    -- * Analyzing and running plans
                     ,getSteps
+                    ,stepsToForest
                     ,runPlan
+                    -- * Declaring steps and annotations
                     ,step
                     ,foretell
+                    -- * Constructing plans
                     ,plan
                     ,planIO
                     ,planK
@@ -25,10 +31,3 @@ import Control.Arrow
 import Streaming.Prelude (Stream,Of(..),yield)
 
 import Control.Plan.Core
-
-
--- TODO:
--- foldSteps catamorphism
--- stepsToTree
--- some kind of run-in-io function to avoid having to always import streaming  
--- ArrowChoice instance? 

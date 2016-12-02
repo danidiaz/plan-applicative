@@ -3,7 +3,10 @@
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
+import qualified Data.Bifunctor as Bifunctor
+import Data.Bifunctor(Bifunctor)
 import Data.Tree
+import Data.Foldable
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Profunctor (Profunctor(..),Star(..))
@@ -36,6 +39,12 @@ instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
 
 data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving Functor
 
+instance Bifunctor Steps where
+    first f (Steps w steps) = 
+        let withStep (e,substeps,w') = (e,Bifunctor.first f substeps,f w') 
+        in  Steps (f w) (fmap withStep steps)  
+    second = fmap
+
 instance Monoid w => Monoid (Steps w e) where
     mempty = Steps mempty mempty
     Steps w1 s1 `mappend` Steps w2 s2 = 
@@ -47,6 +56,11 @@ data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan w s m a b -> Steps w s
 getSteps (Plan forest _) = forest
+
+stepsToForest :: Steps w s -> Forest s
+stepsToForest (Steps _ steps) = map toNode (toList steps) 
+    where
+    toNode (e,steps',_) = Node e (stepsToForest steps')
 
 runPlan :: Plan w s m a b -> a -> Stream (Of (Tick,s)) m b
 runPlan (Plan _ (Star f)) = f
@@ -73,6 +87,6 @@ planKIO f = Plan mempty (Star (liftIO . f))
 
 -- TODO:
 -- foldSteps catamorphism
--- stepsToTree
 -- some kind of run-in-io function to avoid having to always import streaming  
+-- Emit a tree Zipper with each tick. The nodes will be annotated.
 -- ArrowChoice instance? 
