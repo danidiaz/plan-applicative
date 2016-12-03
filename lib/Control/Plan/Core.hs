@@ -11,6 +11,7 @@ import Data.Tree
 import Data.Foldable
 import Data.Bifoldable
 import Data.Bitraversable
+import Data.Functor.Identity
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Profunctor (Profunctor(..),Star(..))
@@ -22,7 +23,7 @@ import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming.Prelude (Stream,Of(..),yield)
 
-data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of (Tick,s)) m) a b) deriving Functor
+data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of (Tick,())) m) a b) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
     pure x = Plan mempty (pure x)
@@ -75,6 +76,14 @@ foldSteps f = go
     where
     go (Steps w steps) = f w (fmap (\(e',steps',w') -> (e',go steps',w')) steps)
 
+bimapSteps :: (w -> w') -> (e -> e') -> Plan w e m a b -> Plan w' e' m a b
+bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
+
+zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan w e m a b -> Plan w' e m a b
+zoomSteps setter = bimapSteps (\w -> set' w mempty) id
+    where
+    set' w = runIdentity . setter (Identity . const w)
+
 data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan w s m a b -> Steps w s
@@ -85,13 +94,13 @@ stepsToForest (Steps _ steps) = map toNode (toList steps)
     where
     toNode (e,steps',_) = Node e (stepsToForest steps')
 
-runPlan :: Plan w s m a b -> a -> Stream (Of (Tick,s)) m b
+runPlan :: Plan w s m a b -> a -> Stream (Of (Tick,())) m b
 runPlan (Plan _ (Star f)) = f
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
-         (Star (\x -> yield (Starting,s) *> f x <* yield (Finished,s)))
+         (Star (\x -> yield (Starting,()) *> f x <* yield (Finished,())))
 
 foretell :: (Monad m) => w -> Plan w s m a ()
 foretell w = Plan (Steps w mempty) (pure ())  

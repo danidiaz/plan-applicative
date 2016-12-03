@@ -5,10 +5,14 @@
 module Control.Plan (Plan
                     ,Steps(..)
                     ,Tick(..)
-                    -- * Analyzing and running plans
+                    -- * Adapting plans
+                    ,bimapSteps
+                    ,zoomSteps
+                    -- * Analyzing plans
                     ,getSteps
                     ,foldSteps
                     ,stepsToForest
+                    -- * Running plans
                     ,runPlan
                     -- * Declaring steps and annotations
                     ,step
