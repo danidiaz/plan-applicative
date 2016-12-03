@@ -30,9 +30,9 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming (hoist)
-import Streaming.Prelude (Stream,Of(..),yield)
+import Streaming.Prelude (Stream,Of(..),yield,next)
 
-data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of (Tick,())) m) a b) deriving Functor
+data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of Tick) m) a b) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
     pure x = Plan mempty (pure x)
@@ -106,13 +106,13 @@ stepsToForest (Steps _ steps) = map toNode (toList steps)
     where
     toNode (e,steps',_) = Node e (stepsToForest steps')
 
-runPlan :: Plan w s m a b -> a -> Stream (Of (Tick,())) m b
+runPlan :: Plan w s m a b -> a -> Stream (Of Tick) m b
 runPlan (Plan _ (Star f)) = f
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
-         (Star (\x -> yield (Starting,()) *> f x <* yield (Finished,())))
+         (Star (\x -> yield Starting *> f x <* yield Finished))
 
 foretell :: (Monad m) => w -> Plan w s m a ()
 foretell w = Plan (Steps w mempty) (pure ())  
@@ -153,12 +153,25 @@ data Meter start end c = Meter
 
 type Recap start end c = Forest ((start,end),c) 
 
-runPlanWith :: m start -- ^
+runPlanWith :: Monad m 
+            => m start -- ^
             -> m end 
             -> Plan w s m a b 
             -> a 
             -> Stream (Of (Progress start end s)) m (Recap start end s,b)
-runPlanWith _ _ _ _ = undefined
+runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial = 
+      let go state stream = 
+            do n <- lift (next stream)
+               case n of 
+                   Left b -> case state of
+                       Outside completed [] -> return (reverse completed,b) -- do we need to recurse?
+                       _ -> error "should never happen"
+                   Right (Starting,stream') -> undefined
+                   Right (Finished,stream') -> undefined
+      in go (Outside [] (stepsToForest steps)) (f initial)
+
+data Tracker start end c = Inside (Forest ((start,end),c)) (start,c) (Forest c)
+                         | Outside (Forest ((start,end),c)) (Forest c)
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
