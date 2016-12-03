@@ -2,6 +2,7 @@
 
 {-# language DeriveFunctor #-}
 {-# language FlexibleInstances #-}
+{-# language PatternSynonyms #-}
 module Control.Plan (Plan
                     ,Steps(..)
                     ,Tick(..)
@@ -16,6 +17,10 @@ module Control.Plan (Plan
                     ,stepsToForest
                     -- * Running plans
                     ,runPlan
+                    ,Progress
+                    ,Meter(..)
+                    ,Recap
+                    ,runPlanWith
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell

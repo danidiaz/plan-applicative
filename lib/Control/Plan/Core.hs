@@ -6,12 +6,16 @@
 {-# language DeriveFoldable #-}
 {-# language DeriveTraversable #-}
 {-# language RankNTypes #-}
+{-# language PatternSynonyms #-}
+{-# language ViewPatterns #-}
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
 import Data.Bifunctor(Bifunctor)
 import Data.Tree
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Foldable
 import Data.Bifoldable
 import Data.Bitraversable
@@ -138,7 +142,24 @@ zipSteps' forest (Steps w substeps)
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
--- TODO Separate analyzing/running sections in the docs.
+type Progress start end c = (Maybe end,NonEmpty (Meter start end c))
+
+data Meter start end c = Meter
+                     {
+                       completedSteps :: Forest ((start,end),c)
+                     , currentStep :: (start,c)
+                     , pendingSteps :: Forest c
+                     } deriving (Show,Eq,Functor,Foldable,Traversable)
+
+type Recap start end c = Forest ((start,end),c) 
+
+runPlanWith :: m start -- ^
+            -> m end 
+            -> Plan w s m a b 
+            -> a 
+            -> Stream (Of (Progress start end s)) m (Recap start end s,b)
+runPlanWith _ _ _ _ = undefined
+
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
 -- TODO ArrowChoice instance? 
