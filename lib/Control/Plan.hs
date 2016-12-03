@@ -8,6 +8,7 @@ module Control.Plan (Plan
                     -- * Adapting plans
                     ,bimapSteps
                     ,zoomSteps
+                    ,zipSteps
                     ,hoistPlan
                     -- * Analyzing plans
                     ,getSteps

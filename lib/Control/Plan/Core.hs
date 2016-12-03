@@ -1,3 +1,6 @@
+-- | If you  manipulate the internals of `Plan` to add fake steps, bad things
+-- might happen.
+
 {-# language DeriveFunctor #-}
 {-# language FlexibleInstances #-}
 {-# language DeriveFoldable #-}
@@ -53,12 +56,12 @@ instance Bifunctor Steps where
     second = fmap
 
 instance Bifoldable Steps where
-    bifoldMap f g (Steps w steps) = f w `mappend` foldMap (\(e,substeps,w') -> g e 
-                                                                               `mappend` 
-                                                                               bifoldMap f g substeps
-                                                                               `mappend` 
-                                                                               f w')
-                                                          steps
+    bifoldMap f g (Steps w steps) = 
+        f w `mappend` foldMap (\(e,substeps,w') -> g e 
+                                                   `mappend` 
+                                                   bifoldMap f g substeps
+                                                   `mappend` 
+                                                   f w') steps
 
 instance Bitraversable Steps where
     bitraverse f g (Steps w steps) = 
@@ -122,7 +125,19 @@ planK f = Plan mempty (Star (lift . f))
 planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
--- TODO Bifoldable (and Bitraversable) instances for Steps?
+zipSteps' :: Forest a -> Steps w r -> Maybe (Steps w (a,r))
+zipSteps' forest (Steps w substeps) 
+    | length forest == length substeps = 
+        let paired = Seq.zipWith (\(Node a subforest) (e,substeps',w') -> 
+                                        ((a,e),zipSteps' subforest substeps',w'))
+                                 (Seq.fromList forest) 
+                                 substeps 
+        in Steps w <$> traverse (\(e,ms,w') -> fmap (\s -> (e,s,w')) ms) paired 
+    | otherwise = Nothing
+
+zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
+zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
+
 -- TODO Separate analyzing/running sections in the docs.
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
