@@ -2,6 +2,7 @@
 {-# language FlexibleInstances #-}
 {-# language DeriveFoldable #-}
 {-# language DeriveTraversable #-}
+{-# language RankNTypes #-}
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
@@ -21,6 +22,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
+import Streaming (hoist)
 import Streaming.Prelude (Stream,Of(..),yield)
 
 data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of (Tick,())) m) a b) deriving Functor
@@ -83,6 +85,9 @@ zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan w e m
 zoomSteps setter = bimapSteps (\w -> set' w mempty) id
     where
     set' w = runIdentity . setter (Identity . const w)
+
+hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan w e m a b -> Plan w e n a b
+hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
 data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
 
