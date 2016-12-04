@@ -14,7 +14,7 @@ import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
 import Data.Bifunctor(Bifunctor)
 import Data.Tree
-import Data.List.NonEmpty (NonEmpty)
+import Data.List.NonEmpty (NonEmpty((:|)),(<|))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Foldable
 import Data.Bifoldable
@@ -142,16 +142,19 @@ zipSteps' forest (Steps w substeps)
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
-type Progress start end c = (Maybe end,NonEmpty (Meter start end c))
+type Recap start end c = Forest (start,(end,c)) 
+
+data Tick' start end c = Starting' (Forest c) 
+                      | Finished' (Recap start end c) end deriving (Eq,Show)
+
+type Progress start end c = (Tick' start end c,NonEmpty (Meter start end c))
 
 data Meter start end c = Meter
                      {
-                       completedSteps :: Forest ((start,end),c)
+                       completedSteps :: Recap start end c
                      , currentStep :: (start,c)
                      , pendingSteps :: Forest c
                      } deriving (Show,Eq,Functor,Foldable,Traversable)
-
-type Recap start end c = Forest ((start,end),c) 
 
 runPlanWith :: Monad m 
             => m start -- ^
@@ -164,15 +167,23 @@ runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial =
             do n <- lift (next stream)
                case n of 
                    Left b -> case state of
-                       Outside completed [] -> return (reverse completed,b) -- do we need to recurse?
+                       Top completed [] -> return (reverse completed,b) -- do we need to recurse???
                        _ -> error "should never happen"
-                   Right (Starting,stream') -> undefined
+                   Right (Starting,stream') -> do
+                        startRead <- lift startMeasure
+                        case state of 
+                            Top recap (Node root forest : rest) -> do
+                                let tick = (Starting' forest, Meter recap (startRead,root) rest :| [])  
+                                yield tick
+                                go (Normal tick) stream'
                    Right (Finished,stream') -> undefined
-      in go (Outside [] (stepsToForest steps)) (f initial)
+      in go (Top [] (stepsToForest steps)) (f initial)
 
-data Tracker start end c = Inside (Forest ((start,end),c)) (start,c) (Forest c)
-                         | Outside (Forest ((start,end),c)) (Forest c)
+data Tracker start end c = Top (Recap start end c) (Forest c)
+                         | Normal (Progress start end c)
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
 -- TODO ArrowChoice instance? 
+-- TODO unlift functions
+-- TODO Tick,TickType,Progress 
