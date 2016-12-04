@@ -109,7 +109,7 @@ stepsToForest (Steps _ steps) = map toNode (toList steps)
 runPlan :: Monad m 
         => Plan w s m a b -- ^ 
         -> a 
-        -> Stream (Of (Tick () () s)) m b
+        -> Stream (Of (Change () () s)) m b
 runPlan plan a = snd <$> runPlanWith (return ()) (return ()) plan a
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
@@ -145,53 +145,50 @@ zipSteps' forest (Steps w substeps)
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
-data TickType start end c = Starting (Forest c) 
-                          | Finished (Forest ((start,end),c)) end deriving (Eq,Show)
+data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
+                        | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
+                        deriving (Eq,Show)
 
-type Tick start end c = (TickType start end c,NonEmpty (Progress start end c))
-
-data Progress start end c = Progress
+data Context start end c = Context
                           {
                             completedSteps :: Forest ((start,end),c)
                           , currentStep :: (start,c)
                           , pendingSteps :: Forest c
                           } deriving (Show,Eq,Functor,Foldable,Traversable)
 
-reverseForest :: Forest x -> Forest x 
-reverseForest = map (\(Node n subforest) -> Node n (reverseForest subforest)) . reverse
-
 runPlanWith :: Monad m 
             => m start -- ^
             -> m end 
             -> Plan w s m a b 
             -> a 
-            -> Stream (Of (Tick start end s)) m (Forest ((start,end),s),b)
+            -> Stream (Of (Change start end s)) m (Forest ((start,end),s),b)
 runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                case (n,state) of 
                    (Left b,Tracker completed [] []) -> 
-                       return (reverseForest completed,b) 
+                       return (reverse completed,b) 
                    (Right (Starting_,stream'),
                     Tracker completed (Node root subforest:forest) upwards) -> 
                        do startRead <- lift startMeasure
-                          let tip = Progress completed (startRead,root) forest
-                          yield (Starting subforest, tip :| upwards)
+                          let tip = Context completed (startRead,root) forest
+                          yield (Starting (tip :| upwards) subforest)
                           go (Tracker [] subforest (tip : upwards)) 
                              stream'
                    (Right (Finished_,stream'),
-                    Tracker completed [] (m@(Progress recap (startRead,root) pending):upwards)) -> 
+                    Tracker completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
                        do finishRead <- lift finishMeasure
-                          yield (Finished completed finishRead, m :| upwards)  
-                          go (Tracker (Node ((startRead,finishRead),root) completed : recap) pending upwards) 
+                          let reversed = reverse completed
+                          yield (Finished (m :| upwards) reversed finishRead)  
+                          go (Tracker (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
                              stream'
                    _ -> error "should never happen"
       in go (Tracker [] (stepsToForest steps) []) (f initial)
 
-data Tracker start end c = Tracker (Forest ((start,end),c)) (Forest c) [Progress start end c]
+data Tracker start end c = Tracker (Forest ((start,end),c)) (Forest c) [Context start end c]
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
 -- TODO ArrowChoice instance? 
 -- TODO unlift functions
--- TODO Tick,TickType,Tick 
+-- TODO Tick,Change,Tick 

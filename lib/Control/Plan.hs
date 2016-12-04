@@ -5,7 +5,6 @@
 {-# language PatternSynonyms #-}
 module Control.Plan (Plan
                     ,Steps(..)
-                    ,Tick(..)
                     -- * Adapting plans
                     ,bimapSteps
                     ,zoomSteps
@@ -18,9 +17,8 @@ module Control.Plan (Plan
                     -- * Running plans
                     ,runPlan
                     ,runPlanWith
-                    ,Tick(..)
-                    ,TickType(..)
-                    ,Progress(..)
+                    ,Change(..)
+                    ,Context(..)
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell
