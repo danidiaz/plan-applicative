@@ -147,14 +147,14 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 
 data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
                         | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
-                        deriving (Eq,Show)
+                        deriving (Eq,Show,Functor)
 
 data Context start end c = Context
                           {
                             completedSteps :: Forest ((start,end),c)
                           , currentStep :: (start,c)
                           , pendingSteps :: Forest c
-                          } deriving (Show,Eq,Functor,Foldable,Traversable)
+                          } deriving (Show,Eq,Functor)
 
 runPlanWith :: Monad m 
             => m start -- ^
