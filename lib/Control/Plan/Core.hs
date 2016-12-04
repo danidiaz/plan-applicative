@@ -156,6 +156,9 @@ data Meter start end c = Meter
                      , pendingSteps :: Forest c
                      } deriving (Show,Eq,Functor,Foldable,Traversable)
 
+reverseForest :: Forest x -> Forest x 
+reverseForest = map (\(Node n subforest) -> Node n (reverseForest subforest)) . reverse
+
 runPlanWith :: Monad m 
             => m start -- ^
             -> m end 
@@ -165,22 +168,26 @@ runPlanWith :: Monad m
 runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
-               case n of 
-                   Left b -> case state of
-                       Top completed [] -> return (reverse completed,b) -- do we need to recurse???
-                       _ -> error "should never happen"
-                   Right (Starting,stream') -> do
-                        startRead <- lift startMeasure
-                        case state of 
-                            Top recap (Node root forest : rest) -> do
-                                let tick = (Starting' forest, Meter recap (startRead,root) rest :| [])  
-                                yield tick
-                                go (Normal tick) stream'
-                   Right (Finished,stream') -> undefined
-      in go (Top [] (stepsToForest steps)) (f initial)
+               case (n,state) of 
+                   (Left b,Tracker completed [] []) -> 
+                       return (reverseForest completed,b) 
+                   (Right (Starting,stream'),
+                    Tracker completed (Node root subforest:forest) upwards) -> 
+                       do startRead <- lift startMeasure
+                          let tip = Meter completed (startRead,root) forest
+                          yield (Starting' subforest, tip :| upwards)
+                          go (Tracker [] subforest (tip : upwards)) 
+                             stream'
+                   (Right (Finished,stream'),
+                    Tracker completed [] (m@(Meter recap (startRead,root) pending):upwards)) -> 
+                       do finishRead <- lift finishMeasure
+                          yield (Finished' completed finishRead, m :| upwards)  
+                          go (Tracker (Node (startRead,(finishRead,root)) completed : recap) pending upwards) 
+                             stream'
+                   _ -> error "should never happen"
+      in go (Tracker [] (stepsToForest steps) []) (f initial)
 
-data Tracker start end c = Top (Recap start end c) (Forest c)
-                         | Normal (Progress start end c)
+data Tracker start end c = Tracker (Recap start end c) (Forest c) [Meter start end c]
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
