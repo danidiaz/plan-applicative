@@ -32,7 +32,7 @@ import Control.Arrow
 import Streaming (hoist)
 import Streaming.Prelude (Stream,Of(..),yield,next)
 
-data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of Tick) m) a b) deriving Functor
+data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of Tick_) m) a b) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
     pure x = Plan mempty (pure x)
@@ -96,7 +96,7 @@ zoomSteps setter = bimapSteps (\w -> set' w mempty) id
 hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan w e m a b -> Plan w e n a b
 hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
-data Tick = Starting | Finished deriving (Eq,Ord,Enum,Show)
+data Tick_ = Starting_ | Finished_ deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan w s m a b -> Steps w s
 getSteps (Plan forest _) = forest
@@ -106,13 +106,16 @@ stepsToForest (Steps _ steps) = map toNode (toList steps)
     where
     toNode (e,steps',_) = Node e (stepsToForest steps')
 
-runPlan :: Plan w s m a b -> a -> Stream (Of Tick) m b
-runPlan (Plan _ (Star f)) = f
+runPlan :: Monad m 
+        => Plan w s m a b -- ^ 
+        -> a 
+        -> Stream (Of (Tick () () s)) m b
+runPlan plan a = snd <$> runPlanWith (return ()) (return ()) plan a
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
-         (Star (\x -> yield Starting *> f x <* yield Finished))
+         (Star (\x -> yield Starting_ *> f x <* yield Finished_))
 
 foretell :: (Monad m) => w -> Plan w s m a ()
 foretell w = Plan (Steps w mempty) (pure ())  
@@ -142,19 +145,17 @@ zipSteps' forest (Steps w substeps)
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
-type Recap start end c = Forest (start,(end,c)) 
+data TickType start end c = Starting (Forest c) 
+                          | Finished (Forest ((start,end),c)) end deriving (Eq,Show)
 
-data Tick' start end c = Starting' (Forest c) 
-                      | Finished' (Recap start end c) end deriving (Eq,Show)
+type Tick start end c = (TickType start end c,NonEmpty (Progress start end c))
 
-type Progress start end c = (Tick' start end c,NonEmpty (Meter start end c))
-
-data Meter start end c = Meter
-                     {
-                       completedSteps :: Recap start end c
-                     , currentStep :: (start,c)
-                     , pendingSteps :: Forest c
-                     } deriving (Show,Eq,Functor,Foldable,Traversable)
+data Progress start end c = Progress
+                          {
+                            completedSteps :: Forest ((start,end),c)
+                          , currentStep :: (start,c)
+                          , pendingSteps :: Forest c
+                          } deriving (Show,Eq,Functor,Foldable,Traversable)
 
 reverseForest :: Forest x -> Forest x 
 reverseForest = map (\(Node n subforest) -> Node n (reverseForest subforest)) . reverse
@@ -164,33 +165,33 @@ runPlanWith :: Monad m
             -> m end 
             -> Plan w s m a b 
             -> a 
-            -> Stream (Of (Progress start end s)) m (Recap start end s,b)
+            -> Stream (Of (Tick start end s)) m (Forest ((start,end),s),b)
 runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                case (n,state) of 
                    (Left b,Tracker completed [] []) -> 
                        return (reverseForest completed,b) 
-                   (Right (Starting,stream'),
+                   (Right (Starting_,stream'),
                     Tracker completed (Node root subforest:forest) upwards) -> 
                        do startRead <- lift startMeasure
-                          let tip = Meter completed (startRead,root) forest
-                          yield (Starting' subforest, tip :| upwards)
+                          let tip = Progress completed (startRead,root) forest
+                          yield (Starting subforest, tip :| upwards)
                           go (Tracker [] subforest (tip : upwards)) 
                              stream'
-                   (Right (Finished,stream'),
-                    Tracker completed [] (m@(Meter recap (startRead,root) pending):upwards)) -> 
+                   (Right (Finished_,stream'),
+                    Tracker completed [] (m@(Progress recap (startRead,root) pending):upwards)) -> 
                        do finishRead <- lift finishMeasure
-                          yield (Finished' completed finishRead, m :| upwards)  
-                          go (Tracker (Node (startRead,(finishRead,root)) completed : recap) pending upwards) 
+                          yield (Finished completed finishRead, m :| upwards)  
+                          go (Tracker (Node ((startRead,finishRead),root) completed : recap) pending upwards) 
                              stream'
                    _ -> error "should never happen"
       in go (Tracker [] (stepsToForest steps) []) (f initial)
 
-data Tracker start end c = Tracker (Recap start end c) (Forest c) [Meter start end c]
+data Tracker start end c = Tracker (Forest ((start,end),c)) (Forest c) [Progress start end c]
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
 -- TODO ArrowChoice instance? 
 -- TODO unlift functions
--- TODO Tick,TickType,Progress 
+-- TODO Tick,TickType,Tick 

@@ -17,10 +17,10 @@ module Control.Plan (Plan
                     ,stepsToForest
                     -- * Running plans
                     ,runPlan
-                    ,Progress
-                    ,Meter(..)
-                    ,Recap
                     ,runPlanWith
+                    ,Tick(..)
+                    ,TickType(..)
+                    ,Progress(..)
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell
