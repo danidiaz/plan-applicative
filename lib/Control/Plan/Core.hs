@@ -149,6 +149,19 @@ data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c)
                         | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
                         deriving (Eq,Show,Functor)
 
+changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
+changeToForest (Starting contexts pending) = undefined
+changeToForest (Finished contexts completed end) = undefined
+
+contextToForest :: Forest (Maybe (start,Maybe end),c) -> Context start end c
+contextToForest _ = undefined
+
+completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
+completedToForest _ = undefined
+
+pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
+pendingToForest _ = undefined
+
 data Context start end c = Context
                           {
                             completedSteps :: Forest ((start,end),c)
@@ -166,26 +179,26 @@ runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial =
       let go state stream = 
             do n <- lift (next stream)
                case (n,state) of 
-                   (Left b,Tracker completed [] []) -> 
+                   (Left b,RunningState completed [] []) -> 
                        return (reverse completed,b) 
                    (Right (Starting_,stream'),
-                    Tracker completed (Node root subforest:forest) upwards) -> 
+                    RunningState completed (Node root subforest:forest) upwards) -> 
                        do startRead <- lift startMeasure
                           let tip = Context completed (startRead,root) forest
                           yield (Starting (tip :| upwards) subforest)
-                          go (Tracker [] subforest (tip : upwards)) 
+                          go (RunningState [] subforest (tip : upwards)) 
                              stream'
                    (Right (Finished_,stream'),
-                    Tracker completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
+                    RunningState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
                        do finishRead <- lift finishMeasure
                           let reversed = reverse completed
                           yield (Finished (m :| upwards) reversed finishRead)  
-                          go (Tracker (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
+                          go (RunningState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
                              stream'
                    _ -> error "should never happen"
-      in go (Tracker [] (stepsToForest steps) []) (f initial)
+      in go (RunningState [] (stepsToForest steps) []) (f initial)
 
-data Tracker start end c = Tracker (Forest ((start,end),c)) (Forest c) [Context start end c]
+data RunningState start end c = RunningState !(Forest ((start,end),c)) !(Forest c) ![Context start end c]
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Emit a tree Zipper with each tick. The nodes will be annotated.

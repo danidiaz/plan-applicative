@@ -18,6 +18,7 @@ module Control.Plan (Plan
                     ,runPlan
                     ,runPlanWith
                     ,Change(..)
+                    ,changeToForest
                     ,Context(..)
                     -- * Declaring steps and annotations
                     ,step
