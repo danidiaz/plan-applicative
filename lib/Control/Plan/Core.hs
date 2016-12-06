@@ -14,6 +14,7 @@ import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
 import Data.Bifunctor(Bifunctor)
 import Data.Tree
+import Data.Monoid
 import Data.List.NonEmpty (NonEmpty((:|)),(<|))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Foldable
@@ -96,7 +97,7 @@ zoomSteps setter = bimapSteps (\w -> set' w mempty) id
 hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan w e m a b -> Plan w e n a b
 hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
-data Tick_ = Starting_ | Finished_ deriving (Eq,Ord,Enum,Show)
+data Tick_ = Skipping_ | Starting_ | Finished_ deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan w s m a b -> Steps w s
 getSteps (Plan forest _) = forest
@@ -116,6 +117,13 @@ step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
          (Star (\x -> yield Starting_ *> f x <* yield Finished_))
+
+skippable :: (Monoid w,Monad m) => s -> Plan w s m a () -> Plan w s m (Maybe a) ()
+skippable s (Plan forest (Star f)) = 
+    Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
+         (Star (\m -> case m of
+                        Just x -> yield Starting_ *> f x <* yield Finished_
+                        Nothing -> yield Skipping_))
 
 foretell :: (Monad m) => w -> Plan w s m a ()
 foretell w = Plan (Steps w mempty) (pure ())  
@@ -206,6 +214,66 @@ data RunState start end c = RunState !(Forest ((start,end),c)) !(Forest c) ![Con
 unliftPlan :: Monad m => Plan w s m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlanWith (pure ()) (pure ()) plan i)
 
+data Recap measure chapter = Recap 
+                           { 
+                             before :: Seq (chapter,measure,Either (Forest chapter) (Recap measure chapter)) 
+                           , instant :: measure
+                           }
+
+data Context' measure c = Context'
+                        {
+                          completed' :: Recap measure c
+                        , current' :: c
+                        , pending' :: Forest c
+                        } 
+
+data RunState' measure c = RunState' !(Seq (c,measure,Either (Forest c) (Recap measure c)))
+                                     !(Forest c) 
+                                     ![Context' measure c]
+
+data Progress' measure c = Progress (NonEmpty (Context' measure c)) (StepEvent measure c) 
+
+data StepEvent measure c = Skipped'  (Forest c)
+                         | Starting' (Forest c)
+                         | Finished' (Recap measure c)
+
+
+runPlan' :: Monad m 
+            => m measure -- ^
+            -> Plan w s m a b 
+            -> a 
+            -> Stream (Of (Progress' measure s)) m (Recap measure s,b)
+runPlan' makeMeasure (Plan steps (Star f)) initial = 
+      let go state stream = 
+            do n <- lift (next stream)
+               case (n,state) of 
+                   (Left b,RunState' completed [] []) -> do 
+                       measure <- lift makeMeasure
+                       return (Recap completed measure,b) 
+                   (Right (Skipping_,stream'),_) -> 
+                        undefined
+                   (Right (Starting_,stream'),
+                    RunState' completed (Node root subforest:forest) upwards) -> 
+                        undefined
+--                       do startRead <- lift startMeasure
+--                          let tip = Context completed (startRead,root) forest
+--                          yield (Starting (tip :| upwards) subforest)
+--                          go (RunState [] subforest (tip : upwards)) 
+--                             stream'
+                   (Right (Finished_,stream'),_) -> 
+                        undefined
+--                    RunState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
+--                       do finishRead <- lift finishMeasure
+--                          let reversed = reverse completed
+--                          yield (Finished (m :| upwards) reversed finishRead)  
+--                          go (RunState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
+--                             stream'
+                   _ -> error "should never happen"
+      in go (RunState' mempty (stepsToForest steps) []) (f initial)
+
+
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO unlift functions
+-- TODO Actually implement the logic for Finished'
+-- TODO Modify the steps for Finished'.
+-- TODO Use only one measurement.
