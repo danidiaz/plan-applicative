@@ -150,24 +150,27 @@ data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c)
                         deriving (Eq,Show,Functor)
 
 changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
-changeToForest (Starting contexts pending) = undefined
-changeToForest (Finished contexts completed end) = undefined
+changeToForest (Starting contexts pending) = 
+    foldr contextToForest (pendingToForest pending) contexts 
+changeToForest (Finished (Context completed' (start',current') pending' :| contexts) completed end) = 
+    foldr contextToForest [Node (Just (start',Just end),current') (completedToForest completed)] contexts 
 
-contextToForest :: Forest (Maybe (start,Maybe end),c) -> Context start end c
-contextToForest _ = undefined
+contextToForest :: Context start end c -> Forest (Maybe (start,Maybe end),c) -> Forest (Maybe (start,Maybe end),c) 
+contextToForest (Context completed' (start',current') pending') below =
+    completedToForest completed' ++ [Node (Just (start',Nothing),current') below] ++ pendingToForest pending'
 
 completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
-completedToForest _ = undefined
+completedToForest (reverse -> forest) = map (fmap (\((start,end),c) -> (Just (start,Just end),c))) forest
 
 pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
-pendingToForest _ = undefined
+pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 
 data Context start end c = Context
-                          {
-                            completedSteps :: Forest ((start,end),c)
-                          , currentStep :: (start,c)
-                          , pendingSteps :: Forest c
-                          } deriving (Show,Eq,Functor)
+                         {
+                           completed :: Forest ((start,end),c)
+                         , current :: (start,c)
+                         , pending :: Forest c
+                         } deriving (Show,Eq,Functor)
 
 runPlanWith :: Monad m 
             => m start -- ^
@@ -179,29 +182,27 @@ runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial =
       let go state stream = 
             do n <- lift (next stream)
                case (n,state) of 
-                   (Left b,RunningState completed [] []) -> 
+                   (Left b,RunState completed [] []) -> 
                        return (reverse completed,b) 
                    (Right (Starting_,stream'),
-                    RunningState completed (Node root subforest:forest) upwards) -> 
+                    RunState completed (Node root subforest:forest) upwards) -> 
                        do startRead <- lift startMeasure
                           let tip = Context completed (startRead,root) forest
                           yield (Starting (tip :| upwards) subforest)
-                          go (RunningState [] subforest (tip : upwards)) 
+                          go (RunState [] subforest (tip : upwards)) 
                              stream'
                    (Right (Finished_,stream'),
-                    RunningState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
+                    RunState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
                        do finishRead <- lift finishMeasure
                           let reversed = reverse completed
                           yield (Finished (m :| upwards) reversed finishRead)  
-                          go (RunningState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
+                          go (RunState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
                              stream'
                    _ -> error "should never happen"
-      in go (RunningState [] (stepsToForest steps) []) (f initial)
+      in go (RunState [] (stepsToForest steps) []) (f initial)
 
-data RunningState start end c = RunningState !(Forest ((start,end),c)) !(Forest c) ![Context start end c]
+data RunState start end c = RunState !(Forest ((start,end),c)) !(Forest c) ![Context start end c]
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO Emit a tree Zipper with each tick. The nodes will be annotated.
 -- TODO ArrowChoice instance? 
 -- TODO unlift functions
--- TODO Tick,Change,Tick 
