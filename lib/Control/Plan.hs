@@ -20,6 +20,7 @@ module Control.Plan (Plan
                     ,Change(..)
                     ,changeToForest
                     ,Context(..)
+                    ,unliftPlan
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell

@@ -30,7 +30,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming (hoist)
-import Streaming.Prelude (Stream,Of(..),yield,next)
+import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
 data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of Tick_) m) a b) deriving Functor
 
@@ -203,6 +203,9 @@ runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial =
 
 data RunState start end c = RunState !(Forest ((start,end),c)) !(Forest c) ![Context start end c]
 
+unliftPlan :: Monad m => Plan w s m i o -> i -> m o
+unliftPlan plan i = snd <$> effects (runPlanWith (pure ()) (pure ()) plan i)
+
+
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO ArrowChoice instance? 
 -- TODO unlift functions
