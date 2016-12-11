@@ -229,7 +229,8 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                    _ -> error "should never happen"
       in go (RunState mempty (stepsToForest steps) []) (f initial)
 
+-- TODO Recap -> Timeline
+-- TODO switch the order in Steps and Timeline
+-- TODO Unify recap and timeline? -- leave it for later. Possibly not worth it.
+-- TODO Comonad instance for recap and timeline???
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO Actually implement the logic for Finished
--- TODO Modify the steps for Finished.
--- TODO Use only one measurement.
