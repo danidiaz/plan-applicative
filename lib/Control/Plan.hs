@@ -16,10 +16,11 @@ module Control.Plan (Plan
                     ,stepsToForest
                     -- * Running plans
                     ,runPlan
-                    ,runPlanWith
-                    ,Change(..)
-                    ,changeToForest
+                    ,Progress(..)
+--                    ,changeToForest
                     ,Context(..)
+                    ,StepEvent(..)
+                    ,Recap(..)
                     ,unliftPlan
                     -- * Declaring steps and annotations
                     ,step

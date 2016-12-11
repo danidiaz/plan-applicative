@@ -107,12 +107,6 @@ stepsToForest (Steps _ steps) = map toNode (toList steps)
     where
     toNode (e,steps',_) = Node e (stepsToForest steps')
 
-runPlan :: Monad m 
-        => Plan w s m a b -- ^ 
-        -> a 
-        -> Stream (Of (Change () () s)) m b
-runPlan plan a = snd <$> runPlanWith (return ()) (return ()) plan a
-
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
@@ -153,67 +147,29 @@ zipSteps' forest (Steps w substeps)
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
-data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
-                        | Skipping (NonEmpty (Context start end c)) (Forest c) 
-                        | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
-                        deriving (Eq,Show,Functor)
-
-changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
-changeToForest (Starting contexts pending) = 
-    foldr contextToForest (pendingToForest pending) contexts 
-changeToForest (Finished (Context completed' (start',current') pending' :| contexts) completed end) = 
-    foldr contextToForest [Node (Just (start',Just end),current') (completedToForest completed)] contexts 
-
-contextToForest :: Context start end c -> Forest (Maybe (start,Maybe end),c) -> Forest (Maybe (start,Maybe end),c) 
-contextToForest (Context completed' (start',current') pending') below =
-    completedToForest completed' ++ [Node (Just (start',Nothing),current') below] ++ pendingToForest pending'
-
-completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
-completedToForest (reverse -> forest) = map (fmap (\((start,end),c) -> (Just (start,Just end),c))) forest
-
-pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
-pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
-
-data Context start end c = Context
-                         {
-                           completed :: Forest ((start,end),c)
-                         , current :: (start,c)
-                         , pending :: Forest c
-                         } deriving (Show,Eq,Functor)
-
-runPlanWith :: Monad m 
-            => m start -- ^
-            -> m end 
-            -> Plan w s m a b 
-            -> a 
-            -> Stream (Of (Change start end s)) m (Forest ((start,end),s),b)
-runPlanWith startMeasure finishMeasure (Plan steps (Star f)) initial = 
-      let go state stream = 
-            do n <- lift (next stream)
-               case (n,state) of 
-                   (Left b,RunState completed [] []) -> 
-                       return (reverse completed,b) 
-                   (Right (Starting_,stream'),
-                    RunState completed (Node root subforest:forest) upwards) -> 
-                       do startRead <- lift startMeasure
-                          let tip = Context completed (startRead,root) forest
-                          yield (Starting (tip :| upwards) subforest)
-                          go (RunState [] subforest (tip : upwards)) 
-                             stream'
-                   (Right (Finished_,stream'),
-                    RunState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
-                       do finishRead <- lift finishMeasure
-                          let reversed = reverse completed
-                          yield (Finished (m :| upwards) reversed finishRead)  
-                          go (RunState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
-                             stream'
-                   _ -> error "should never happen"
-      in go (RunState [] (stepsToForest steps) []) (f initial)
-
-data RunState start end c = RunState !(Forest ((start,end),c)) !(Forest c) ![Context start end c]
+-- data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
+--                         | Skipping (NonEmpty (Context start end c)) (Forest c) 
+--                         | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
+--                         deriving (Eq,Show,Functor)
+-- 
+-- changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
+-- changeToForest (Starting contexts pending) = 
+--     foldr contextToForest (pendingToForest pending) contexts 
+-- changeToForest (Finished (Context completed' (start',current') pending' :| contexts) completed end) = 
+--     foldr contextToForest [Node (Just (start',Just end),current') (completedToForest completed)] contexts 
+-- 
+-- contextToForest :: Context start end c -> Forest (Maybe (start,Maybe end),c) -> Forest (Maybe (start,Maybe end),c) 
+-- contextToForest (Context completed' (start',current') pending') below =
+--     completedToForest completed' ++ [Node (Just (start',Nothing),current') below] ++ pendingToForest pending'
+-- 
+-- completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
+-- completedToForest (reverse -> forest) = map (fmap (\((start,end),c) -> (Just (start,Just end),c))) forest
+-- 
+-- pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
+-- pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 
 unliftPlan :: Monad m => Plan w s m i o -> i -> m o
-unliftPlan plan i = snd <$> effects (runPlanWith (pure ()) (pure ()) plan i)
+unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
 data Recap measure chapter = Recap 
                            { 
@@ -221,61 +177,59 @@ data Recap measure chapter = Recap
                            , instant :: measure
                            }
 
-data Context' measure c = Context'
+data Context measure c = Context
                         {
                           completed' :: Recap measure c
                         , current' :: c
                         , pending' :: Forest c
                         } 
 
-data RunState' measure c = RunState' !(Seq (c,measure,Either (Forest c) (Recap measure c)))
+data RunState measure c = RunState !(Seq (c,measure,Either (Forest c) (Recap measure c)))
                                      !(Forest c) 
-                                     ![Context' measure c]
+                                     ![Context measure c]
 
-data Progress' measure c = Progress (NonEmpty (Context' measure c)) (StepEvent measure c) 
+data Progress measure c = Progress (NonEmpty (Context measure c)) (StepEvent measure c) 
 
-data StepEvent measure c = Skipped'  (Forest c)
-                         | Starting' (Forest c)
-                         | Finished' (Recap measure c)
+data StepEvent measure c = Skipped  (Forest c)
+                         | Starting (Forest c)
+                         | Finished (Recap measure c)
 
 
-runPlan' :: Monad m 
-            => m measure -- ^
-            -> Plan w s m a b 
-            -> a 
-            -> Stream (Of (Progress' measure s)) m (Recap measure s,b)
-runPlan' makeMeasure (Plan steps (Star f)) initial = 
+runPlan :: Monad m 
+           => m measure -- ^
+           -> Plan w s m a b 
+           -> a 
+           -> Stream (Of (Progress measure s)) m (Recap measure s,b)
+runPlan makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                measure <- lift makeMeasure
                case (n,state) of 
                    (Left b,
-                    RunState' completed [] []) -> do 
+                    RunState completed [] []) -> do 
                        return (Recap completed measure,b) 
                    (Right (Skipping_,stream'),
-                    RunState' previous (Node root subforest:forest) upwards) -> do
-                        yield (Progress (Context' (Recap previous measure) root forest :| upwards) 
-                                        (Skipped' subforest))
-                        go (RunState' (previous Seq.|> (root,measure,Left subforest)) forest upwards)
+                    RunState previous (Node root subforest:forest) upwards) -> do
+                        yield (Progress (Context (Recap previous measure) root forest :| upwards) 
+                                        (Skipped subforest))
+                        go (RunState (previous Seq.|> (root,measure,Left subforest)) forest upwards)
                            stream'
                    (Right (Starting_,stream'),
-                    RunState' previous (Node root subforest:forest) upwards) -> do
-                        yield (Progress (Context' (Recap previous measure) root forest :| upwards) 
-                                        (Starting' subforest))
-                        go (RunState' mempty subforest (Context' (Recap previous measure) root forest : upwards))
+                    RunState previous (Node root subforest:forest) upwards) -> do
+                        yield (Progress (Context (Recap previous measure) root forest :| upwards) 
+                                        (Starting subforest))
+                        go (RunState mempty subforest (Context (Recap previous measure) root forest : upwards))
                            stream'
                    (Right (Finished_,stream'),
-                    RunState' previous [] (ctx@(Context' recap root next) : upwards)) -> do
+                    RunState previous [] (ctx@(Context recap root next) : upwards)) -> do
                         yield (Progress (ctx :| upwards)
-                                        (Finished' (Recap previous measure)))
-                        go (RunState' (previous Seq.|> (root,measure,Right recap)) next upwards)
+                                        (Finished (Recap previous measure)))
+                        go (RunState (previous Seq.|> (root,measure,Right recap)) next upwards)
                            stream'
                    _ -> error "should never happen"
-      in go (RunState' mempty (stepsToForest steps) []) (f initial)
-
-
+      in go (RunState mempty (stepsToForest steps) []) (f initial)
 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO Actually implement the logic for Finished'
--- TODO Modify the steps for Finished'.
+-- TODO Actually implement the logic for Finished
+-- TODO Modify the steps for Finished.
 -- TODO Use only one measurement.
