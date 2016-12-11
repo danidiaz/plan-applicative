@@ -154,6 +154,7 @@ zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
 data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
+                        | Skipping (NonEmpty (Context start end c)) (Forest c) 
                         | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
                         deriving (Eq,Show,Functor)
 
@@ -246,21 +247,25 @@ runPlan' :: Monad m
 runPlan' makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
+               measure <- lift makeMeasure
                case (n,state) of 
-                   (Left b,RunState' completed [] []) -> do 
-                       measure <- lift makeMeasure
+                   (Left b,
+                    RunState' completed [] []) -> do 
                        return (Recap completed measure,b) 
-                   (Right (Skipping_,stream'),_) -> 
-                        undefined
+                   (Right (Skipping_,stream'),
+                    RunState' previous (Node root subforest:forest) upwards) -> do
+                        yield (Progress (Context' (Recap previous measure) root forest :| upwards) 
+                                        (Skipped' subforest))
+                        go (RunState' (previous Seq.|> (root,measure,Left subforest)) forest upwards)
+                           stream'
                    (Right (Starting_,stream'),
-                    RunState' completed (Node root subforest:forest) upwards) -> 
-                        undefined
---                       do startRead <- lift startMeasure
---                          let tip = Context completed (startRead,root) forest
---                          yield (Starting (tip :| upwards) subforest)
---                          go (RunState [] subforest (tip : upwards)) 
---                             stream'
-                   (Right (Finished_,stream'),_) -> 
+                    RunState' previous (Node root subforest:forest) upwards) -> do
+                        yield (Progress (Context' (Recap previous measure) root forest :| upwards) 
+                                        (Starting' subforest))
+                        go (RunState' mempty subforest (Context' (Recap previous measure) root forest : upwards))
+                           stream'
+                   (Right (Finished_,stream'),
+                    _) -> do
                         undefined
 --                    RunState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
 --                       do finishRead <- lift finishMeasure
