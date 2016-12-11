@@ -265,14 +265,11 @@ runPlan' makeMeasure (Plan steps (Star f)) initial =
                         go (RunState' mempty subforest (Context' (Recap previous measure) root forest : upwards))
                            stream'
                    (Right (Finished_,stream'),
-                    _) -> do
-                        undefined
---                    RunState completed [] (m@(Context recap (startRead,root) pending):upwards)) -> 
---                       do finishRead <- lift finishMeasure
---                          let reversed = reverse completed
---                          yield (Finished (m :| upwards) reversed finishRead)  
---                          go (RunState (Node ((startRead,finishRead),root) reversed : recap) pending upwards) 
---                             stream'
+                    RunState' previous [] (ctx@(Context' recap root next) : upwards)) -> do
+                        yield (Progress (ctx :| upwards)
+                                        (Finished' (Recap previous measure)))
+                        go (RunState' (previous Seq.|> (root,measure,Right recap)) next upwards)
+                           stream'
                    _ -> error "should never happen"
       in go (RunState' mempty (stepsToForest steps) []) (f initial)
 
