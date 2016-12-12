@@ -171,35 +171,35 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 unliftPlan :: Monad m => Plan w s m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
-data Recap measure chapter = Recap 
+data Recap chapter measure = Recap 
                            { 
-                             before :: Seq (chapter,measure,Either (Forest chapter) (Recap measure chapter)) 
+                             before :: Seq (measure,chapter,Either (Forest chapter) (Recap chapter measure)) 
                            , instant :: measure
                            }
 
 data Context measure c = Context
                         {
-                          completed' :: Recap measure c
+                          completed' :: Recap c measure
                         , current' :: c
                         , pending' :: Forest c
                         } 
 
-data RunState measure c = RunState !(Seq (c,measure,Either (Forest c) (Recap measure c)))
-                                     !(Forest c) 
-                                     ![Context measure c]
+data RunState measure c = RunState !(Seq (measure,c,Either (Forest c) (Recap c measure)))
+                                   !(Forest c) 
+                                   ![Context measure c]
 
 data Progress measure c = Progress (NonEmpty (Context measure c)) (StepEvent measure c) 
 
 data StepEvent measure c = Skipped  (Forest c)
                          | Starting (Forest c)
-                         | Finished (Recap measure c)
+                         | Finished (Recap c measure)
 
 
 runPlan :: Monad m 
            => m measure -- ^
            -> Plan w s m a b 
            -> a 
-           -> Stream (Of (Progress measure s)) m (Recap measure s,b)
+           -> Stream (Of (Progress measure s)) m (Recap s measure,b)
 runPlan makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
@@ -212,7 +212,7 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                     RunState previous (Node root subforest:forest) upwards) -> do
                         yield (Progress (Context (Recap previous measure) root forest :| upwards) 
                                         (Skipped subforest))
-                        go (RunState (previous Seq.|> (root,measure,Left subforest)) forest upwards)
+                        go (RunState (previous Seq.|> (measure,root,Left subforest)) forest upwards)
                            stream'
                    (Right (Starting_,stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
@@ -224,7 +224,7 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                     RunState previous [] (ctx@(Context recap root next) : upwards)) -> do
                         yield (Progress (ctx :| upwards)
                                         (Finished (Recap previous measure)))
-                        go (RunState (previous Seq.|> (root,measure,Right recap)) next upwards)
+                        go (RunState (previous Seq.|> (measure,root,Right recap)) next upwards)
                            stream'
                    _ -> error "should never happen"
       in go (RunState mempty (stepsToForest steps) []) (f initial)
