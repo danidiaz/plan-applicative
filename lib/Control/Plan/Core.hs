@@ -33,7 +33,7 @@ import Control.Arrow
 import Streaming (hoist)
 import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
-data Plan w s m a b = Plan (Steps w s) (Star (Stream (Of Tick_) m) a b) deriving Functor
+data Plan w s m a b = Plan (Steps s w) (Star (Stream (Of Tick_) m) a b) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
     pure x = Plan mempty (pure x)
@@ -52,45 +52,47 @@ instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
-data Steps w e = Steps w (Seq (e, Steps w e,w)) deriving (Functor,Foldable,Traversable)
+data Steps e w = Steps (Seq (w,e,Steps e w)) w deriving (Functor,Foldable,Traversable)
 
 instance Bifunctor Steps where
-    first f (Steps w steps) = 
-        let withStep (e,substeps,w') = (e,Bifunctor.first f substeps,f w') 
-        in  Steps (f w) (fmap withStep steps)  
+    first f (Steps steps w) = 
+        let withStep (w',e,substeps) = (w',f e,Bifunctor.first f substeps) 
+        in  Steps (fmap withStep steps) w
     second = fmap
 
 instance Bifoldable Steps where
-    bifoldMap f g (Steps w steps) = 
-        f w `mappend` foldMap (\(e,substeps,w') -> g e 
-                                                   `mappend` 
-                                                   bifoldMap f g substeps
-                                                   `mappend` 
-                                                   f w') steps
+    bifoldMap g f (Steps steps w) = 
+        foldMap (\(w',e,substeps) -> f w'
+                                     `mappend` 
+                                     g e 
+                                     `mappend` 
+                                     bifoldMap g f substeps) steps
+        `mappend`
+        f w
 
 instance Bitraversable Steps where
-    bitraverse f g (Steps w steps) = 
-        Steps <$> f w <*> traverse innertraverse steps  
+    bitraverse g f (Steps steps w) = 
+        Steps <$> traverse innertraverse steps <*> f w
         where
-        innertraverse (e,substeps,w') = (,,) <$> g e <*> bitraverse f g substeps <*> f w' 
+        innertraverse (w',e,substeps) = (,,) <$> f w' <*> g e <*> bitraverse g f substeps
     
-instance Monoid w => Monoid (Steps w e) where
+instance Monoid w => Monoid (Steps e w) where
     mempty = Steps mempty mempty
-    Steps w1 s1 `mappend` Steps w2 s2 = 
-        case Seq.viewr s1 of
-            Seq.EmptyR          -> Steps (w1 `mappend` w2) s2
-            s1' Seq.:> (e,s,w') -> Steps w1 ((s1' Seq.|> (e,s,w' `mappend` w2)) `mappend` s2)
+    Steps s1 w1 `mappend` Steps s2 w2 = 
+        case Seq.viewl s2 of
+            Seq.EmptyL          -> Steps s1 (w1 `mappend` w2)
+            (w',e,s) Seq.:< s2' -> Steps (s1 `mappend` ((w1 `mappend` w',e,s) Seq.<| s2')) w2
 
-foldSteps :: (w -> Seq (e,r,w) -> r) -> Steps w e -> r
+foldSteps :: (Seq (w,e,r) -> w -> r) -> Steps e w -> r
 foldSteps f = go
     where
-    go (Steps w steps) = f w (fmap (\(e',steps',w') -> (e',go steps',w')) steps)
+    go (Steps steps w) = f (fmap (\(w',e',steps') -> (w',e',go steps')) steps) w
 
-bimapSteps :: (w -> w') -> (e -> e') -> Plan w e m a b -> Plan w' e' m a b
+bimapSteps ::  (e -> e') -> (w -> w') -> Plan w e m a b -> Plan w' e' m a b
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
 
 zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan w e m a b -> Plan w' e m a b
-zoomSteps setter = bimapSteps (\w -> set' w mempty) id
+zoomSteps setter = bimapSteps id (\w -> set' w mempty)
     where
     set' w = runIdentity . setter (Identity . const w)
 
@@ -99,28 +101,28 @@ hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f))
 
 data Tick_ = Skipping_ | Starting_ | Finished_ deriving (Eq,Ord,Enum,Show)
 
-getSteps :: Plan w s m a b -> Steps w s
+getSteps :: Plan w s m a b -> Steps s w
 getSteps (Plan forest _) = forest
 
-stepsToForest :: Steps w s -> Forest s
-stepsToForest (Steps _ steps) = map toNode (toList steps) 
+stepsToForest :: Steps s w -> Forest s
+stepsToForest (Steps steps _) = map toNode (toList steps) 
     where
-    toNode (e,steps',_) = Node e (stepsToForest steps')
+    toNode (_,e,steps') = Node e (stepsToForest steps')
 
 step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
 step s (Plan forest (Star f)) = 
-    Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
+    Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
          (Star (\x -> yield Starting_ *> f x <* yield Finished_))
 
 skippable :: (Monoid w,Monad m) => s -> Plan w s m a () -> Plan w s m (Maybe a) ()
 skippable s (Plan forest (Star f)) = 
-    Plan (Steps mempty (Seq.singleton (s,forest,mempty))) 
+    Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
          (Star (\m -> case m of
                         Just x -> yield Starting_ *> f x <* yield Finished_
                         Nothing -> yield Skipping_))
 
 foretell :: (Monad m) => w -> Plan w s m a ()
-foretell w = Plan (Steps w mempty) (pure ())  
+foretell w = Plan (Steps mempty w) (pure ())  
 
 plan :: (Monoid w,Monad m) => m b -> Plan w s m a b
 plan x = Plan mempty (Star (const (lift x))) 
@@ -134,14 +136,14 @@ planK f = Plan mempty (Star (lift . f))
 planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
-zipSteps' :: Forest a -> Steps w r -> Maybe (Steps w (a,r))
-zipSteps' forest (Steps w substeps) 
+zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
+zipSteps' forest (Steps substeps w) 
     | length forest == length substeps = 
-        let paired = Seq.zipWith (\(Node a subforest) (e,substeps',w') -> 
-                                        ((a,e),zipSteps' subforest substeps',w'))
+        let paired = Seq.zipWith (\(Node a subforest) (w',e,substeps') -> 
+                                        (w',(a,e),zipSteps' subforest substeps'))
                                  (Seq.fromList forest) 
                                  substeps 
-        in Steps w <$> traverse (\(e,ms,w') -> fmap (\s -> (e,s,w')) ms) paired 
+        in flip Steps w <$> traverse (\(w',e,ms) -> fmap (\s -> (w',e,s)) ms) paired 
     | otherwise = Nothing
 
 zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
@@ -234,3 +236,5 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
 -- TODO Unify recap and timeline? -- leave it for later. Possibly not worth it.
 -- TODO Comonad instance for recap and timeline???
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
+--
+
