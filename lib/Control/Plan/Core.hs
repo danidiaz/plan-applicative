@@ -33,22 +33,22 @@ import Control.Arrow
 import Streaming (hoist)
 import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
-data Plan w s m a b = Plan (Steps s w) (Star (Stream (Of Tick_) m) a b) deriving Functor
+data Plan s w m a b = Plan (Steps s w) (Star (Stream (Of Tick_) m) a b) deriving Functor
 
-instance (Monoid w,Monad m) => Applicative (Plan w s m a) where
+instance (Monoid w,Monad m) => Applicative (Plan s w m a) where
     pure x = Plan mempty (pure x)
     Plan forest1 f <*> Plan forest2 x = Plan (forest1 `mappend` forest2) (f <*> x)
 
-instance (Monoid w,Monad m) => Category (Plan w s m) where
+instance (Monoid w,Monad m) => Category (Plan s w m) where
     id = Plan mempty (Star (runKleisli id))
     (Plan forest1 (Star f1)) . (Plan forest2 (Star f2)) = 
         Plan (forest2 `mappend` forest1) (Star (f2 >=> f1))
 
-instance (Monoid w,Monad m) => Arrow (Plan w s m) where
+instance (Monoid w,Monad m) => Arrow (Plan s w m) where
     arr f = Plan mempty (Star (runKleisli (arr f)))
     first (Plan forest (Star f)) =  Plan forest (Star (runKleisli (first (Kleisli f))))
 
-instance (Monoid w,Monad m) => Profunctor (Plan w s m) where
+instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
@@ -88,20 +88,20 @@ foldSteps f = go
     where
     go (Steps steps w) = f (fmap (\(w',e',steps') -> (w',e',go steps')) steps) w
 
-bimapSteps ::  (e -> e') -> (w -> w') -> Plan w e m a b -> Plan w' e' m a b
+bimapSteps ::  (e -> e') -> (w -> w') -> Plan e w m a b -> Plan e' w' m a b
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
 
-zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan w e m a b -> Plan w' e m a b
+zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan e w m a b -> Plan e w' m a b
 zoomSteps setter = bimapSteps id (\w -> set' w mempty)
     where
     set' w = runIdentity . setter (Identity . const w)
 
-hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan w e m a b -> Plan w e n a b
+hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan e w m a b -> Plan e w n a b
 hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
-data Tick_ = Skipping_ | Starting_ | Finished_ deriving (Eq,Ord,Enum,Show)
+data Tick_ = Skipping_ | Started_ | Finished_ deriving (Eq,Ord,Enum,Show)
 
-getSteps :: Plan w s m a b -> Steps s w
+getSteps :: Plan s w m a b -> Steps s w
 getSteps (Plan forest _) = forest
 
 stepsToForest :: Steps s w -> Forest s
@@ -109,31 +109,31 @@ stepsToForest (Steps steps _) = map toNode (toList steps)
     where
     toNode (_,e,steps') = Node e (stepsToForest steps')
 
-step :: (Monoid w,Monad m) => s -> Plan w s m a b -> Plan w s m a b
+step :: (Monoid w,Monad m) => s -> Plan s w m a b -> Plan s w m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
-         (Star (\x -> yield Starting_ *> f x <* yield Finished_))
+         (Star (\x -> yield Started_ *> f x <* yield Finished_))
 
-skippable :: (Monoid w,Monad m) => s -> Plan w s m a () -> Plan w s m (Maybe a) ()
+skippable :: (Monoid w,Monad m) => s -> Plan s w m a () -> Plan s w m (Maybe a) ()
 skippable s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
          (Star (\m -> case m of
-                        Just x -> yield Starting_ *> f x <* yield Finished_
+                        Just x -> yield Started_ *> f x <* yield Finished_
                         Nothing -> yield Skipping_))
 
-foretell :: (Monad m) => w -> Plan w s m a ()
+foretell :: (Monad m) => w -> Plan s w m a ()
 foretell w = Plan (Steps mempty w) (pure ())  
 
-plan :: (Monoid w,Monad m) => m b -> Plan w s m a b
+plan :: (Monoid w,Monad m) => m b -> Plan s w m a b
 plan x = Plan mempty (Star (const (lift x))) 
 
-planIO :: (Monoid w,MonadIO m) => IO b -> Plan w s m a b
+planIO :: (Monoid w,MonadIO m) => IO b -> Plan s w m a b
 planIO x = Plan mempty (Star (const (liftIO x))) 
 
-planK :: (Monoid w,Monad m) => (a -> m b) -> Plan w s m a b
+planK :: (Monoid w,Monad m) => (a -> m b) -> Plan s w m a b
 planK f = Plan mempty (Star (lift . f)) 
 
-planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan w s m a b
+planKIO :: (Monoid w,MonadIO m) => (a -> IO b) -> Plan s w m a b
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
 zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
@@ -146,23 +146,19 @@ zipSteps' forest (Steps substeps w)
         in flip Steps w <$> traverse (\(w',e,ms) -> fmap (\s -> (w',e,s)) ms) paired 
     | otherwise = Nothing
 
-zipSteps :: Forest a -> Plan w r m i o -> Maybe (Plan w (a,r) m i o)
+zipSteps :: Forest a -> Plan r w m i o -> Maybe (Plan (a,r) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
--- data Change start end c = Starting (NonEmpty (Context start end c)) (Forest c) 
---                         | Skipping (NonEmpty (Context start end c)) (Forest c) 
---                         | Finished (NonEmpty (Context start end c)) (Forest ((start,end),c)) end 
---                         deriving (Eq,Show,Functor)
 -- 
 -- changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
--- changeToForest (Starting contexts pending) = 
+-- changeToForest (Started contexts pending) = 
 --     foldr contextToForest (pendingToForest pending) contexts 
--- changeToForest (Finished (Context completed' (start',current') pending' :| contexts) completed end) = 
---     foldr contextToForest [Node (Just (start',Just end),current') (completedToForest completed)] contexts 
+-- changeToForest (Finished (Context completed (start',current) pending :| contexts) completed end) = 
+--     foldr contextToForest [Node (Just (start',Just end),current) (completedToForest completed)] contexts 
 -- 
 -- contextToForest :: Context start end c -> Forest (Maybe (start,Maybe end),c) -> Forest (Maybe (start,Maybe end),c) 
--- contextToForest (Context completed' (start',current') pending') below =
---     completedToForest completed' ++ [Node (Just (start',Nothing),current') below] ++ pendingToForest pending'
+-- contextToForest (Context completed (start',current) pending) below =
+--     completedToForest completed ++ [Node (Just (start',Nothing),current) below] ++ pendingToForest pending
 -- 
 -- completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
 -- completedToForest (reverse -> forest) = map (fmap (\((start,end),c) -> (Just (start,Just end),c))) forest
@@ -170,38 +166,34 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 -- pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
 -- pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 
-unliftPlan :: Monad m => Plan w s m i o -> i -> m o
+unliftPlan :: Monad m => Plan s w m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
-data Recap chapter measure = Recap 
-                           { 
-                             before :: Seq (measure,chapter,Either (Forest chapter) (Recap chapter measure)) 
-                           , instant :: measure
-                           }
+data Timeline chapter measure = Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure
 
-data Context measure c = Context
+data Context c measure = Context
                         {
-                          completed' :: Recap c measure
-                        , current' :: c
-                        , pending' :: Forest c
+                          completed :: Timeline c measure
+                        , current :: c
+                        , pending :: Forest c
                         } 
 
-data RunState measure c = RunState !(Seq (measure,c,Either (Forest c) (Recap c measure)))
+data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline c measure)))
                                    !(Forest c) 
-                                   ![Context measure c]
+                                   ![Context c measure]
 
-data Progress measure c = Progress (NonEmpty (Context measure c)) (StepEvent measure c) 
+data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) 
 
-data StepEvent measure c = Skipped  (Forest c)
-                         | Starting (Forest c)
-                         | Finished (Recap c measure)
+data Progress c measure = Skipped  (Forest c)
+                         | Started (Forest c)
+                         | Finished (Timeline c measure)
 
 
 runPlan :: Monad m 
            => m measure -- ^
-           -> Plan w s m a b 
+           -> Plan s w m a b 
            -> a 
-           -> Stream (Of (Progress measure s)) m (Recap s measure,b)
+           -> Stream (Of (Tick s measure)) m (Timeline s measure,b)
 runPlan makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
@@ -209,32 +201,34 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                case (n,state) of 
                    (Left b,
                     RunState completed [] []) -> do 
-                       return (Recap completed measure,b) 
+                       return (Timeline completed measure,b) 
                    (Right (Skipping_,stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
-                        yield (Progress (Context (Recap previous measure) root forest :| upwards) 
+                        yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
                                         (Skipped subforest))
                         go (RunState (previous Seq.|> (measure,root,Left subforest)) forest upwards)
                            stream'
-                   (Right (Starting_,stream'),
+                   (Right (Started_,stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
-                        yield (Progress (Context (Recap previous measure) root forest :| upwards) 
-                                        (Starting subforest))
-                        go (RunState mempty subforest (Context (Recap previous measure) root forest : upwards))
+                        yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
+                                        (Started subforest))
+                        go (RunState mempty subforest (Context (Timeline previous measure) root forest : upwards))
                            stream'
                    (Right (Finished_,stream'),
                     RunState previous [] (ctx@(Context recap root next) : upwards)) -> do
-                        yield (Progress (ctx :| upwards)
-                                        (Finished (Recap previous measure)))
+                        yield (Tick (ctx :| upwards)
+                                        (Finished (Timeline previous measure)))
                         go (RunState (previous Seq.|> (measure,root,Right recap)) next upwards)
                            stream'
                    _ -> error "should never happen"
       in go (RunState mempty (stepsToForest steps) []) (f initial)
 
--- TODO Recap -> Timeline
--- TODO switch the order in Steps and Timeline
 -- TODO Unify recap and timeline? -- leave it for later. Possibly not worth it.
 -- TODO Comonad instance for recap and timeline???
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
---
-
+-- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
+-- TODO Add tickToForest.
+-- TODO Add simpleTick.
+-- tODO Add timeline folding function.
+-- TODO Express Steps and Timeline in terms of Lasanga.
+-- TODO Add "mandatoriness" to Steps. Find a better name.
