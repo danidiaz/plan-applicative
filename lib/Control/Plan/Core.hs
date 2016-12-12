@@ -149,6 +149,9 @@ zipSteps' forest (Steps substeps w)
 zipSteps :: Forest a -> Plan r w m i o -> Maybe (Plan (a,r) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
+tickToForest :: Tick c measure -> Forest (Maybe (Progress c measure),c)
+tickToForest (Tick upwards progress) = undefined 
+
 -- 
 -- changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
 -- changeToForest (Started contexts pending) = 
@@ -177,10 +180,6 @@ data Context c measure = Context
                         , current :: c
                         , pending :: Forest c
                         } 
-
-data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline c measure)))
-                                   !(Forest c) 
-                                   ![Context c measure]
 
 data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) 
 
@@ -223,11 +222,15 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                    _ -> error "should never happen"
       in go (RunState mempty (stepsToForest steps) []) (f initial)
 
+data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline c measure)))
+                                   !(Forest c) 
+                                   ![Context c measure]
+
+-- TODO Add tickToForest <- working on it
 -- TODO Unify recap and timeline? -- leave it for later. Possibly not worth it.
 -- TODO Comonad instance for recap and timeline???
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
--- TODO Add tickToForest.
 -- TODO Add simpleTick.
 -- tODO Add timeline folding function.
 -- TODO Express Steps and Timeline in terms of Lasanga.
