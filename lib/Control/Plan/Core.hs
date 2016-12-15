@@ -200,6 +200,15 @@ data Timeline chapter measure = Timeline (Seq (measure,chapter,Either (Forest ch
 getLastTime :: Timeline chapter t -> t
 getLastTime (Timeline _ t) = t
 
+durations :: Timeline c t -> Timeline (Either t (t,t),c) t
+durations tl = undefined
+
+timelineToForest :: Timeline c t -> Forest c
+timelineToForest tl = undefined 
+
+foldTimeline :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
+foldTimeline f = undefined
+
 data Context c measure = Context
                         {
                           completed :: Timeline c measure
