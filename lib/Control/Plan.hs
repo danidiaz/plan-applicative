@@ -17,7 +17,8 @@ module Control.Plan (Plan
                     -- * Running plans
                     ,runPlan
                     ,Tick(..)
---                    ,changeToForest
+                    ,simpleTick
+                    ,tickToForest
                     ,Context(..)
                     ,Progress(..)
                     ,Timeline(..)

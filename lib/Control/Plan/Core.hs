@@ -1,4 +1,4 @@
--- | If you  manipulate the internals of `Plan` to add fake steps, bad things
+-- | If you  manipulate thr internals of `Plan` to add fake steps, bad things
 -- might happen.
 
 {-# language DeriveFunctor #-}
@@ -149,10 +149,33 @@ zipSteps' forest (Steps substeps w)
 zipSteps :: Forest a -> Plan r w m i o -> Maybe (Plan (a,r) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
-tickToForest :: Tick c measure -> Forest (Maybe (Progress c measure),c)
-tickToForest (Tick upwards progress) = undefined 
+tickToForest :: Tick c t -> Forest (Maybe (Either t (t,Maybe t)),c)
+tickToForest (Tick upwards@(Context completed curr pending :| contexts) progress) = 
+    case progress of 
+        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (getLastTime completed)),curr) (skippedToForest forest (getLastTime completed))] ++ pendingToForest pending) contexts
+        Started forest -> foldr contextToForest (pendingToForest forest) upwards
+        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (getLastTime completed,Just (getLastTime timeline))),curr) (completedToForest timeline)] ++ pendingToForest pending) contexts
 
--- 
+simpleTick :: Tick c t -> (NonEmpty (t,c),Progress c t) 
+simpleTick (Tick contexts progress) =  (fmap (\(Context previous c _) -> (getLastTime previous,c)) contexts,progress)
+
+contextToForest :: Context c t 
+                -> Forest (Maybe (Either t (t,Maybe t)),c)
+                -> Forest (Maybe (Either t (t,Maybe t)),c)
+contextToForest (Context completed c pending) below =
+       completedToForest completed 
+    ++ [Node (Just (Right (getLastTime completed,Nothing)),c) below] 
+    ++ pendingToForest pending
+
+completedToForest :: Timeline c t -> Forest (Maybe (Either t (t,Maybe t)),c)
+completedToForest = undefined
+
+pendingToForest :: Forest c -> Forest (Maybe (Either t (t,Maybe t)),c)
+pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
+
+skippedToForest :: Forest c -> t -> Forest (Maybe (Either t (t,Maybe t)),c)
+skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
+
 -- changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
 -- changeToForest (Started contexts pending) = 
 --     foldr contextToForest (pendingToForest pending) contexts 
@@ -173,6 +196,9 @@ unliftPlan :: Monad m => Plan s w m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
 data Timeline chapter measure = Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure
+
+getLastTime :: Timeline chapter t -> t
+getLastTime (Timeline _ t) = t
 
 data Context c measure = Context
                         {
