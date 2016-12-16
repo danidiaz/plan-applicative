@@ -308,4 +308,4 @@ data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline 
 -- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
 -- TODO Express Steps and Timeline in terms of Lasanga.
 -- TODO hide implementations of Steps and Timeline. All occurrences of Seq.
--- TODO bifoldable & bitraversable for Timeline <- prerrequisite for  
+-- TODO bifoldable & bitraversable for Timeline <- prerrequisite for.  

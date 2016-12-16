@@ -14,6 +14,7 @@ module Control.Plan (Plan
                     -- * Analyzing plans
                     ,getSteps
                     ,foldSteps
+                    ,mandatoriness
                     ,stepsToForest
                     -- * Running plans
                     ,unliftPlan
