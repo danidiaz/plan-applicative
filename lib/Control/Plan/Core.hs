@@ -57,21 +57,25 @@ instance Comonad (Steps s) where
     extract = extractSteps
     duplicate = duplicateSteps
 
-data Steps e w = Steps (Seq (w,e,Steps e w)) w deriving (Functor,Foldable,Traversable)
+data Steps e w = Steps (Seq (w,e,Mandatoriness,Steps e w)) w deriving (Functor,Foldable,Traversable)
+
+data Mandatoriness = Skippable
+                   | Mandatory
+                   deriving (Show,Eq,Ord)
 
 instance Bifunctor Steps where
     first f (Steps steps w) = 
-        let withStep (w',e,substeps) = (w',f e,Bifunctor.first f substeps) 
+        let withStep (w',e,mandatory,substeps) = (w',f e,mandatory,Bifunctor.first f substeps) 
         in  Steps (fmap withStep steps) w
     second = fmap
 
 instance Bifoldable Steps where
     bifoldMap g f (Steps steps w) = 
-        foldMap (\(w',e,substeps) -> f w'
-                                     `mappend` 
-                                     g e 
-                                     `mappend` 
-                                     bifoldMap g f substeps) steps
+        foldMap (\(w',e,_,substeps) -> f w'
+                                       `mappend` 
+                                       g e 
+                                       `mappend` 
+                                       bifoldMap g f substeps) steps
         `mappend`
         f w
 
@@ -79,19 +83,19 @@ instance Bitraversable Steps where
     bitraverse g f (Steps steps w) = 
         Steps <$> traverse innertraverse steps <*> f w
         where
-        innertraverse (w',e,substeps) = (,,) <$> f w' <*> g e <*> bitraverse g f substeps
+        innertraverse (w',e,mandatory,substeps) = (,,,) <$> f w' <*> g e <*> pure mandatory <*> bitraverse g f substeps
     
 instance Monoid w => Monoid (Steps e w) where
     mempty = Steps mempty mempty
     Steps s1 w1 `mappend` Steps s2 w2 = 
         case Seq.viewl s2 of
-            Seq.EmptyL          -> Steps s1 (w1 `mappend` w2)
-            (w',e,s) Seq.:< s2' -> Steps (s1 `mappend` ((w1 `mappend` w',e,s) Seq.<| s2')) w2
+            Seq.EmptyL                    -> Steps s1 (w1 `mappend` w2)
+            (w',e,mandatory,s) Seq.:< s2' -> Steps (s1 `mappend` ((w1 `mappend` w',e,mandatory,s) Seq.<| s2')) w2
 
-foldSteps :: (Seq (w,e,r) -> w -> r) -> Steps e w -> r
+foldSteps :: (Seq (w,e,Mandatoriness,r) -> w -> r) -> Steps e w -> r
 foldSteps f = go
     where
-    go (Steps steps w) = f (fmap (\(w',e',steps') -> (w',e',go steps')) steps) w
+    go (Steps steps w) = f (fmap (\(w',e',mandatory,steps') -> (w',e',mandatory,go steps')) steps) w
 
 extractSteps :: Steps c w -> w
 extractSteps (Steps _ w) = w 
@@ -100,8 +104,8 @@ duplicateSteps :: Steps c t -> Steps c (Steps c t)
 duplicateSteps tip@(Steps steps _) = Steps (fmap go (Seq.inits steps)) tip
     where
     go steps' = case Seq.viewr steps' of  
-        Seq.EmptyR                     -> error "should never happen"
-        lefto Seq.:> (t',c',timeline') -> ((Steps lefto t'),c',duplicateSteps timeline')
+        Seq.EmptyR                               -> error "should never happen"
+        lefto Seq.:> (t',c',mandatory,timeline') -> ((Steps lefto t'),c',mandatory,duplicateSteps timeline')
 
 bimapSteps ::  (e -> e') -> (w -> w') -> Plan e w m a b -> Plan e' w' m a b
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
@@ -122,16 +126,21 @@ getSteps (Plan forest _) = forest
 stepsToForest :: Steps s w -> Forest s
 stepsToForest (Steps steps _) = map toNode (toList steps) 
     where
-    toNode (_,e,steps') = Node e (stepsToForest steps')
+    toNode (_,e,_,steps') = Node e (stepsToForest steps')
+
+mandatoriness :: Steps s w -> Steps (Mandatoriness,s) w
+mandatoriness (Steps previous w) = Steps (fmap go previous) w
+    where
+    go (w',s,mandatory,substeps) = (w',(mandatory,s),mandatory,mandatoriness substeps)
 
 step :: (Monoid w,Monad m) => s -> Plan s w m a b -> Plan s w m a b
 step s (Plan forest (Star f)) = 
-    Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
+    Plan (Steps (Seq.singleton (mempty,s,Mandatory,forest)) mempty) 
          (Star (\x -> yield Started_ *> f x <* yield Finished_))
 
 skippable :: (Monoid w,Monad m) => s -> Plan s w m a () -> Plan s w m (Maybe a) ()
 skippable s (Plan forest (Star f)) = 
-    Plan (Steps (Seq.singleton (mempty,s,forest)) mempty) 
+    Plan (Steps (Seq.singleton (mempty,s,Skippable,forest)) mempty) 
          (Star (\m -> case m of
                         Just x -> yield Started_ *> f x <* yield Finished_
                         Nothing -> yield Skipping_))
@@ -154,11 +163,11 @@ planKIO f = Plan mempty (Star (liftIO . f))
 zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
 zipSteps' forest (Steps substeps w) 
     | length forest == length substeps = 
-        let paired = Seq.zipWith (\(Node a subforest) (w',e,substeps') -> 
-                                        (w',(a,e),zipSteps' subforest substeps'))
+        let paired = Seq.zipWith (\(Node a subforest) (w',e,mandatory,substeps') -> 
+                                        (w',(a,e),mandatory,zipSteps' subforest substeps'))
                                  (Seq.fromList forest) 
                                  substeps 
-        in flip Steps w <$> traverse (\(w',e,ms) -> fmap (\s -> (w',e,s)) ms) paired 
+        in flip Steps w <$> traverse (\(w',e,mandatory,ms) -> fmap (\s -> (w',e,mandatory,s)) ms) paired 
     | otherwise = Nothing
 
 zipSteps :: Forest a -> Plan r w m i o -> Maybe (Plan (a,r) w m i o)
@@ -298,4 +307,5 @@ data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline 
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
 -- TODO Express Steps and Timeline in terms of Lasanga.
--- TODO Add "mandatoriness" to Steps. Find a better name.
+-- TODO hide implementations of Steps and Timeline. All occurrences of Seq.
+-- TODO bifoldable & bitraversable for Timeline <- prerrequisite for  

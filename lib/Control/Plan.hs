@@ -5,7 +5,7 @@
 {-# language PatternSynonyms #-}
 module Control.Plan (Plan
                     ,Steps(..)
-                    ,Mandatory(..)
+                    ,Mandatoriness(..)
                     -- * Adapting plans
                     ,bimapSteps
                     ,zoomSteps
