@@ -92,8 +92,11 @@ instance Monoid w => Monoid (Steps e w) where
             Seq.EmptyL                    -> Steps s1 (w1 `mappend` w2)
             (w',e,mandatory,s) Seq.:< s2' -> Steps (s1 `mappend` ((w1 `mappend` w',e,mandatory,s) Seq.<| s2')) w2
 
-foldSteps :: (Seq (w,e,Mandatoriness,r) -> w -> r) -> Steps e w -> r
-foldSteps f = go
+foldSteps :: ([(w,e,Mandatoriness,r)] -> w -> r) -> Steps e w -> r
+foldSteps f = foldSteps' (\steps -> f (toList steps))
+
+foldSteps' :: (Seq (w,e,Mandatoriness,r) -> w -> r) -> Steps e w -> r
+foldSteps' f = go
     where
     go (Steps steps w) = f (fmap (\(w',e',mandatory,steps') -> (w',e',mandatory,go steps')) steps) w
 
@@ -199,22 +202,6 @@ pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 skippedToForest :: Forest c -> t -> Forest (Maybe (Either t (t,Maybe t)),c)
 skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
 
--- changeToForest :: Change start end c -> Forest (Maybe (start,Maybe end),c)
--- changeToForest (Started contexts pending) = 
---     foldr contextToForest (pendingToForest pending) contexts 
--- changeToForest (Finished (Context completed (start',current) pending :| contexts) completed end) = 
---     foldr contextToForest [Node (Just (start',Just end),current) (completedToForest completed)] contexts 
--- 
--- contextToForest :: Context start end c -> Forest (Maybe (start,Maybe end),c) -> Forest (Maybe (start,Maybe end),c) 
--- contextToForest (Context completed (start',current) pending) below =
---     completedToForest completed ++ [Node (Just (start',Nothing),current) below] ++ pendingToForest pending
--- 
--- completedToForest :: Forest ((start,end),c) -> Forest (Maybe (start,Maybe end),c) 
--- completedToForest (reverse -> forest) = map (fmap (\((start,end),c) -> (Just (start,Just end),c))) forest
--- 
--- pendingToForest :: Forest c -> Forest (Maybe (start,Maybe end),c) 
--- pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
-
 unliftPlan :: Monad m => Plan s w m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
@@ -263,8 +250,11 @@ instants (Timeline past limit) = Timeline (fmap go past) limit
     go (t',c',Left forest)     = (t',(Left  t',c')                    ,Left  (fmap (fmap (\x -> (Left t',x))) forest))
     go (t',c',Right timeline') = (t',(Right (t',extract timeline'),c'),Right (instants timeline'))
 
-foldTimeline :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
-foldTimeline f = go
+foldTimeline :: ([(t,c,Either (Forest c) r)] -> t -> r) -> Timeline c t -> r
+foldTimeline f = foldTimeline' (\steps -> f (toList steps))
+    
+foldTimeline' :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
+foldTimeline' f = go
     where
     go (Timeline steps t) = f (fmap (\(t',c',foreste) -> (t',c',fmap go foreste)) steps) t
 

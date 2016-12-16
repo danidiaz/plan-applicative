@@ -4,7 +4,7 @@
 {-# language FlexibleInstances #-}
 {-# language PatternSynonyms #-}
 module Control.Plan (Plan
-                    ,Steps(..)
+                    ,Steps
                     ,Mandatoriness(..)
                     -- * Adapting plans
                     ,bimapSteps
@@ -23,7 +23,7 @@ module Control.Plan (Plan
                     ,Tick(..)
                     ,Context(..)
                     ,Progress(..)
-                    ,Timeline(..)
+                    ,Timeline
                     ,foldTimeline
                     ,instants
                     -- * Declaring steps and annotations
