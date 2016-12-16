@@ -222,6 +222,31 @@ data Timeline chapter measure =
     Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure 
     deriving (Functor,Foldable,Traversable)
 
+instance Bifunctor Timeline where
+    first f (Timeline steps w) = 
+        let withStep (w',e,substeps) = (w',f e,bimap (fmap (fmap f)) (Bifunctor.first f) substeps) 
+        in  Timeline (fmap withStep steps) w
+    second = fmap
+
+instance Bifoldable Timeline where
+    bifoldMap g f (Timeline steps w) = 
+        foldMap (\(w',e,substeps) -> f w'
+                                  `mappend` 
+                                  g e 
+                                  `mappend` 
+                                  bifoldMap (mconcat . map (foldMap g)) (bifoldMap g f) substeps) steps
+        `mappend`
+        f w
+
+instance Bitraversable Timeline where
+    bitraverse g f (Timeline steps w) = 
+        Timeline <$> traverse innertraverse steps <*> f w
+        where
+        innertraverse (w',e,substeps) = (,,) 
+                                    <$> f w' 
+                                    <*> g e 
+                                    <*> bitraverse (traverse (traverse g)) (bitraverse g f) substeps
+
 instance Comonad (Timeline s) where
     extract = extractTimeline
     duplicate = duplicateTimeline
