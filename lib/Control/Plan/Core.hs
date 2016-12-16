@@ -27,6 +27,7 @@ import Data.Profunctor (Profunctor(..),Star(..))
 import Control.Category
 import Control.Applicative
 import Control.Monad
+import Control.Comonad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
@@ -51,6 +52,10 @@ instance (Monoid w,Monad m) => Arrow (Plan s w m) where
 instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
+
+instance Comonad (Steps s) where
+    extract = extractSteps
+    duplicate = duplicateSteps
 
 data Steps e w = Steps (Seq (w,e,Steps e w)) w deriving (Functor,Foldable,Traversable)
 
@@ -87,6 +92,16 @@ foldSteps :: (Seq (w,e,r) -> w -> r) -> Steps e w -> r
 foldSteps f = go
     where
     go (Steps steps w) = f (fmap (\(w',e',steps') -> (w',e',go steps')) steps) w
+
+extractSteps :: Steps c w -> w
+extractSteps (Steps _ w) = w 
+
+duplicateSteps :: Steps c t -> Steps c (Steps c t)
+duplicateSteps tip@(Steps steps _) = Steps (fmap go (Seq.inits steps)) tip
+    where
+    go steps' = case Seq.viewr steps' of  
+        Seq.EmptyR                     -> error "should never happen"
+        lefto Seq.:> (t',c',timeline') -> ((Steps lefto t'),c',duplicateSteps timeline')
 
 bimapSteps ::  (e -> e') -> (w -> w') -> Plan e w m a b -> Plan e' w' m a b
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
@@ -152,19 +167,16 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 tickToForest :: Tick c t -> Forest (Maybe (Either t (t,Maybe t)),c)
 tickToForest (Tick upwards@(Context completed curr pending :| contexts) progress) = 
     case progress of 
-        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (getLastTime completed)),curr) (skippedToForest forest (getLastTime completed))] ++ pendingToForest pending) contexts
+        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (extractTimeline completed)),curr) (skippedToForest forest (extractTimeline completed))] ++ pendingToForest pending) contexts
         Started forest -> foldr contextToForest (pendingToForest forest) upwards
-        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (getLastTime completed,Just (getLastTime timeline))),curr) (completedToForest timeline)] ++ pendingToForest pending) contexts
-
-simpleTick :: Tick c t -> (NonEmpty (t,c),Progress c t) 
-simpleTick (Tick contexts progress) =  (fmap (\(Context previous c _) -> (getLastTime previous,c)) contexts,progress)
+        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (extractTimeline completed,Just (extractTimeline timeline))),curr) (completedToForest timeline)] ++ pendingToForest pending) contexts
 
 contextToForest :: Context c t 
                 -> Forest (Maybe (Either t (t,Maybe t)),c)
                 -> Forest (Maybe (Either t (t,Maybe t)),c)
 contextToForest (Context completed c pending) below =
        completedToForest completed 
-    ++ [Node (Just (Right (getLastTime completed,Nothing)),c) below] 
+    ++ [Node (Just (Right (extractTimeline completed,Nothing)),c) below] 
     ++ pendingToForest pending
 
 completedToForest :: Timeline c t -> Forest (Maybe (Either t (t,Maybe t)),c)
@@ -195,10 +207,16 @@ skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
 unliftPlan :: Monad m => Plan s w m i o -> i -> m o
 unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
-data Timeline chapter measure = Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure
+data Timeline chapter measure = 
+    Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure 
+    deriving (Functor,Foldable,Traversable)
 
-getLastTime :: Timeline chapter t -> t
-getLastTime (Timeline _ t) = t
+instance Comonad (Timeline s) where
+    extract = extractTimeline
+    duplicate = duplicateTimeline
+
+extractTimeline :: Timeline chapter t -> t
+extractTimeline (Timeline _ t) = t
 
 durations :: Timeline c t -> Timeline (Either t (t,t),c) t
 durations tl = undefined
@@ -207,20 +225,30 @@ timelineToForest :: Timeline c t -> Forest c
 timelineToForest tl = undefined 
 
 foldTimeline :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
-foldTimeline f = undefined
+foldTimeline f = go
+    where
+    go (Timeline steps t) = f (fmap (\(t',c',foreste) -> (t',c',fmap go foreste)) steps) t
+
+duplicateTimeline :: Timeline c t -> Timeline c (Timeline c t)
+duplicateTimeline tip@(Timeline steps t) = Timeline (fmap go (Seq.inits steps)) tip
+    where
+    go steps' = case Seq.viewr steps' of  
+        Seq.EmptyR                   -> error "should never happen"
+        lefto Seq.:> (t',c',timeline') -> ((Timeline lefto t'),c',fmap duplicateTimeline timeline')
 
 data Context c measure = Context
                         {
                           completed :: Timeline c measure
                         , current :: c
                         , pending :: Forest c
-                        } 
+                        } deriving (Functor,Foldable,Traversable) 
 
-data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) 
+data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) deriving (Functor,Foldable,Traversable) 
 
 data Progress c measure = Skipped  (Forest c)
                          | Started (Forest c)
                          | Finished (Timeline c measure)
+                         deriving (Functor,Foldable,Traversable) 
 
 
 runPlan :: Monad m 

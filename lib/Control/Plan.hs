@@ -15,14 +15,14 @@ module Control.Plan (Plan
                     ,foldSteps
                     ,stepsToForest
                     -- * Running plans
+                    ,unliftPlan
                     ,runPlan
-                    ,Tick(..)
-                    ,simpleTick
                     ,tickToForest
+                    ,Tick(..)
                     ,Context(..)
                     ,Progress(..)
                     ,Timeline(..)
-                    ,unliftPlan
+                    ,foldTimeline
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell
