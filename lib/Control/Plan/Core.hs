@@ -12,7 +12,7 @@ module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
-import Data.Bifunctor(Bifunctor)
+import Data.Bifunctor(Bifunctor,bimap)
 import Data.Tree
 import Data.Monoid
 import Data.List.NonEmpty (NonEmpty((:|)),(<|))
@@ -180,7 +180,9 @@ contextToForest (Context completed c pending) below =
     ++ pendingToForest pending
 
 completedToForest :: Timeline c t -> Forest (Maybe (Either t (t,Maybe t)),c)
-completedToForest = undefined
+completedToForest (timelineToForest . instants -> forest) = fmap (fmap go) forest
+    where
+    go = Bifunctor.first (Just . bimap id (fmap Just))
 
 pendingToForest :: Forest c -> Forest (Maybe (Either t (t,Maybe t)),c)
 pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
@@ -218,11 +220,14 @@ instance Comonad (Timeline s) where
 extractTimeline :: Timeline chapter t -> t
 extractTimeline (Timeline _ t) = t
 
-durations :: Timeline c t -> Timeline (Either t (t,t),c) t
-durations tl = undefined
-
 timelineToForest :: Timeline c t -> Forest c
-timelineToForest tl = undefined 
+timelineToForest (Timeline past limit) = fmap (\(_,c,timeline') -> Node c (either id timelineToForest timeline')) (toList past)
+
+instants :: Timeline c t -> Timeline (Either t (t,t),c) t
+instants (Timeline past limit) = Timeline (fmap go past) limit
+    where
+    go (t',c',Left forest)     = (t',(Left  t',c')                    ,Left  (fmap (fmap (\x -> (Left t',x))) forest))
+    go (t',c',Right timeline') = (t',(Right (t',extract timeline'),c'),Right (instants timeline'))
 
 foldTimeline :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
 foldTimeline f = go
@@ -290,11 +295,7 @@ data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline 
                                    ![Context c measure]
 
 -- TODO Add tickToForest <- working on it
--- TODO Unify recap and timeline? -- leave it for later. Possibly not worth it.
--- TODO Comonad instance for recap and timeline???
 -- TODO Some kind of run-in-io function to avoid having to always import streaming  
 -- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
--- TODO Add simpleTick.
--- tODO Add timeline folding function.
 -- TODO Express Steps and Timeline in terms of Lasanga.
 -- TODO Add "mandatoriness" to Steps. Find a better name.

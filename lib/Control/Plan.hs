@@ -23,6 +23,7 @@ module Control.Plan (Plan
                     ,Progress(..)
                     ,Timeline(..)
                     ,foldTimeline
+                    ,instants
                     -- * Declaring steps and annotations
                     ,step
                     ,foretell
