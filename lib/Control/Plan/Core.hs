@@ -60,7 +60,7 @@ instance Comonad (Steps s) where
     extract = extractSteps
     duplicate = duplicateSteps
 
-data Steps e w = Steps (Seq (w,e,Mandatoriness,Steps e w)) w deriving (Functor,Foldable,Traversable)
+data Steps e w = Steps (Seq (w,e,Mandatoriness,Steps e w)) w deriving (Functor,Foldable,Traversable,Eq,Show)
 
 data Mandatoriness = Skippable
                    | Mandatory
@@ -210,7 +210,7 @@ unliftPlan plan i = snd <$> effects (runPlan (pure ()) plan i)
 
 data Timeline chapter measure = 
     Timeline (Seq (measure,chapter,Either (Forest chapter) (Timeline chapter measure))) measure 
-    deriving (Functor,Foldable,Traversable)
+    deriving (Functor,Foldable,Traversable,Eq,Show)
 
 instance Bifunctor Timeline where
     first f (Timeline steps w) = 
@@ -273,15 +273,30 @@ data Context c measure = Context
                           completed :: Timeline c measure
                         , current :: c
                         , pending :: Forest c
-                        } deriving (Functor,Foldable,Traversable) 
+                        } deriving (Functor,Foldable,Traversable,Eq,Show) 
 
-data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) deriving (Functor,Foldable,Traversable) 
+instance Bifunctor Context where
+    first  f (Context completed' current' pending') =  
+                Context (Bifunctor.first f completed') (f current') (fmap (fmap f) pending')
+    second = fmap
 
+data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) deriving (Functor,Foldable,Traversable,Eq,Show) 
+
+instance Bifunctor Tick where
+    first f (Tick contexts progress) = 
+                Tick (fmap (Bifunctor.first f) contexts) (Bifunctor.first f progress)
+    second = fmap
 
 data Progress c measure = Skipped  (Forest c)
                          | Started (Forest c)
                          | Finished (Timeline c measure)
-                         deriving (Functor,Foldable,Traversable) 
+                         deriving (Functor,Foldable,Traversable,Eq,Show) 
+
+instance Bifunctor Progress where
+    first f (Skipped forest) = Skipped (fmap (fmap f) forest)
+    first f (Started forest) = Skipped (fmap (fmap f) forest)
+    first f (Finished timeline) = Finished (bimap f id timeline)
+    second = fmap
 
 mapTickM :: Monad m => (a -> m b) -> Stream (Of a) m r -> Stream (Of b) m r
 mapTickM = Streaming.Prelude.mapM
