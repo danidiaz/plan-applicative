@@ -53,7 +53,8 @@ instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
-data Steps s w = Steps !(Seq (w,s,Mandatoriness,Steps s w)) w deriving (Functor,Foldable,Traversable,Eq,Show)
+data Steps s w = Steps !(Seq (w,s,Mandatoriness,Steps s w)) w 
+               deriving (Functor,Foldable,Traversable,Eq,Show)
 
 data Mandatoriness = Skippable
                    | Mandatory
@@ -61,15 +62,15 @@ data Mandatoriness = Skippable
 
 instance Bifunctor Steps where
     first f (Steps steps w) = 
-        let withStep (w',e,mandatory,substeps) = (w',f e,mandatory,Bifunctor.first f substeps) 
-        in  Steps (fmap withStep steps) w
+        let go (w',e,mandatoriness',substeps) = (w',f e,mandatoriness',Bifunctor.first f substeps) 
+        in  Steps (fmap go steps) w
     second = fmap
 
 instance Bifoldable Steps where
     bifoldMap g f (Steps steps w) = 
-        foldMap (\(w',e,_,substeps) -> f w'
+        foldMap (\(w',s,_,substeps) -> f w'
                                        `mappend` 
-                                       g e 
+                                       g s 
                                        `mappend` 
                                        bifoldMap g f substeps) steps
         `mappend`
@@ -79,14 +80,16 @@ instance Bitraversable Steps where
     bitraverse g f (Steps steps w) = 
         Steps <$> traverse innertraverse steps <*> f w
         where
-        innertraverse (w',e,mandatory,substeps) = (,,,) <$> f w' <*> g e <*> pure mandatory <*> bitraverse g f substeps
+        innertraverse (w',e,mandatoriness',substeps) = 
+            (,,,) <$> f w' <*> g e <*> pure mandatoriness' <*> bitraverse g f substeps
     
 instance Monoid w => Monoid (Steps s w) where
     mempty = Steps mempty mempty
     Steps s1 w1 `mappend` Steps s2 w2 = 
         case Seq.viewl s2 of
-            Seq.EmptyL                    -> Steps s1 (w1 `mappend` w2)
-            (w',e,mandatory,s) Seq.:< s2' -> Steps (s1 `mappend` ((w1 `mappend` w',e,mandatory,s) Seq.<| s2')) w2
+            Seq.EmptyL -> Steps s1 (w1 `mappend` w2)
+            (w',s,mandatoriness',substeps) Seq.:< s2' -> 
+                Steps (s1 `mappend` ((w1 `mappend` w',s,mandatoriness',substeps) Seq.<| s2')) w2
 
 foldSteps :: ([(w,s,Mandatoriness,r)] -> w -> r) -> Steps s w -> r
 foldSteps f = foldSteps' (\steps -> f (toList steps))
@@ -94,9 +97,8 @@ foldSteps f = foldSteps' (\steps -> f (toList steps))
 foldSteps' :: (Seq (w,s,Mandatoriness,r) -> w -> r) -> Steps s w -> r
 foldSteps' f = go
     where
-    go (Steps steps w) = f (fmap (\(w',e',mandatory,steps') -> (w',e',mandatory,go steps')) steps) w
-
-
+    go (Steps steps w) = 
+        f (fmap (\(w',e',mandatoriness',substeps) -> (w',e',mandatoriness',go substeps)) steps) w
 
 bimapSteps ::  (s -> s') -> (w -> w') -> Plan s w m i o -> Plan s' w' m i o
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
@@ -112,10 +114,10 @@ hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f))
 data Tick' = Skipped' | Started' | Finished' deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan s w m i o -> Steps s w
-getSteps (Plan forest _) = forest
+getSteps (Plan steps _) = steps
 
 mandatoriness :: Steps s w -> Steps (Mandatoriness,s) w
-mandatoriness (Steps previous w) = Steps (fmap go previous) w
+mandatoriness (Steps steps w) = Steps (fmap go steps) w
     where
     go (w',s,mandatory,substeps) = (w',(mandatory,s),mandatory,mandatoriness substeps)
 
@@ -149,11 +151,12 @@ planKIO f = Plan mempty (Star (liftIO . f))
 zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
 zipSteps' forest (Steps substeps w) 
     | length forest == length substeps = 
-        let paired = Seq.zipWith (\(Node a subforest) (w',e,mandatory,substeps') -> 
-                                        (w',(a,e),mandatory,zipSteps' subforest substeps'))
+        let paired = Seq.zipWith (\(Node a subforest) (w',s,mandatory,substeps') -> 
+                                        (w',(a,s),mandatory,zipSteps' subforest substeps'))
                                  (Seq.fromList forest) 
                                  substeps 
-        in flip Steps w <$> traverse (\(w',e,mandatory,ms) -> fmap (\s -> (w',e,mandatory,s)) ms) paired 
+            go (w',s,mandatory,ms) = fmap (\x -> (w',s,mandatory,x)) ms
+        in  flip Steps w <$> traverse go paired 
     | otherwise = Nothing
 
 zipSteps :: Forest s' -> Plan s w m i o -> Maybe (Plan (s',s) w m i o)
@@ -162,9 +165,26 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 tickToForest :: Tick s t -> Forest (Maybe (Either t (t,Maybe t)),s)
 tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progress) = 
     case progress of 
-        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (extract completed)),current) (skippedToForest forest (extract completed))] ++ pendingToForest pending) contexts
-        Started forest -> foldr contextToForest (pendingToForest forest) upwards
-        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (extract completed,Just (extract timeline))),current) (completedToForest timeline)] ++ pendingToForest pending) contexts
+        Skipped forest -> foldr contextToForest 
+                                ( completedToForest completed 
+                                  ++ 
+                                  [Node (Just (Left (extract completed))
+                                        ,current) 
+                                        (skippedToForest forest (extract completed))] 
+                                  ++
+                                  pendingToForest pending ) 
+                                contexts
+        Started forest -> foldr contextToForest 
+                                (pendingToForest forest) 
+                                upwards
+        Finished timeline -> foldr contextToForest 
+                                   ( completedToForest completed 
+                                     ++ 
+                                     [Node (Just (Right (extract completed,Just (extract timeline)))
+                                           ,current) 
+                                           (completedToForest timeline)] 
+                                     ++ pendingToForest pending ) 
+                                   contexts
 
 contextToForest :: Context s t 
                 -> Forest (Maybe (Either t (t,Maybe t)),s)
@@ -188,14 +208,13 @@ skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
 unliftPlan :: Monad m => Plan s w m i o -> i -> m o
 unliftPlan p i = extract <$> effects (runPlan (pure ()) p i)
 
-data Timeline s t = 
-    Timeline !(Seq (t,s,Either (Forest s) (Timeline s t))) t 
-    deriving (Functor,Foldable,Traversable,Eq,Show)
+data Timeline s t = Timeline !(Seq (t,s,Either (Forest s) (Timeline s t))) t 
+                  deriving (Functor,Foldable,Traversable,Eq,Show)
 
 instance Bifunctor Timeline where
     first f (Timeline steps w) = 
-        let withStep (w',e,substeps) = (w',f e,bimap (fmap (fmap f)) (Bifunctor.first f) substeps) 
-        in  Timeline (fmap withStep steps) w
+        let go (w',e,substeps) = (w',f e,bimap (fmap (fmap f)) (Bifunctor.first f) substeps) 
+        in  Timeline (fmap go steps) w
     second = fmap
 
 instance Bifoldable Timeline where
@@ -240,18 +259,21 @@ foldTimeline' f = go
     go (Timeline steps t) = f (fmap (\(t',c',foreste) -> (t',c',fmap go foreste)) steps) t
 
 data Context s t = Context
-                        {
-                          completed :: Timeline s t
-                        , current :: s
-                        , pending :: Forest s
-                        } deriving (Functor,Foldable,Traversable,Eq,Show) 
+                 {
+                   completed :: Timeline s t
+                 , current :: s
+                 , pending :: Forest s
+                 } deriving (Functor,Foldable,Traversable,Eq,Show) 
 
 instance Bifunctor Context where
-    first  f (Context completed' current' pending') =  
-                Context (Bifunctor.first f completed') (f current') (fmap (fmap f) pending')
+    first  f (Context {completed,current,pending}) =  
+                Context (Bifunctor.first f completed) 
+                        (f current) 
+                        (fmap (fmap f) pending)
     second = fmap
 
-data Tick s t = Tick (NonEmpty (Context s t)) (Progress s t) deriving (Functor,Foldable,Traversable,Eq,Show) 
+data Tick s t = Tick (NonEmpty (Context s t)) (Progress s t) 
+                deriving (Functor,Foldable,Traversable,Eq,Show) 
 
 instance Bifunctor Tick where
     first f (Tick contexts progress) = 
@@ -259,9 +281,9 @@ instance Bifunctor Tick where
     second = fmap
 
 data Progress s t = Skipped  (Forest s)
-                         | Started (Forest s)
-                         | Finished (Timeline s t)
-                         deriving (Functor,Foldable,Traversable,Eq,Show) 
+                  | Started (Forest s)
+                  | Finished (Timeline s t)
+                    deriving (Functor,Foldable,Traversable,Eq,Show) 
 
 instance Bifunctor Progress where
     first f (Skipped forest) = Skipped (fmap (fmap f) forest)
@@ -307,8 +329,8 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
       in go (RunState mempty (toForest steps) []) (f initial)
 
 data RunState s t = RunState !(Seq (t,s,Either (Forest s) (Timeline s t)))
-                                   !(Forest s) 
-                                   ![Context s t]
+                             !(Forest s) 
+                             ![Context s t]
 
 class (Bitraversable l) => Lasagna l where
     paths    :: l n a -> l (NonEmpty n) a
