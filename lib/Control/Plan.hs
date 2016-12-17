@@ -25,7 +25,7 @@ module Control.Plan (
                     -- * Running plans
                     ,runPlan
                     ,tickToForest
-                    ,mapTickM
+                    ,onTick
                     ,Tick(..)
                     ,Context(..)
                     ,Progress(..)

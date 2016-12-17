@@ -291,8 +291,8 @@ instance Bifunctor Progress where
     first f (Finished timeline) = Finished (bimap f id timeline)
     second = fmap
 
-mapTickM :: Monad m => (a -> m b) -> Stream (Of a) m r -> Stream (Of b) m r
-mapTickM = Streaming.Prelude.mapM
+onTick :: Monad m => (tick -> m ()) -> Stream (Of tick) m r -> m r
+onTick = Streaming.Prelude.mapM_
 
 runPlan :: Monad m 
            => m t -- ^
