@@ -57,8 +57,12 @@ instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     rmap f p = p >>^ f
 
 instance Comonad (Steps s) where
-    extract = extractSteps
-    duplicate = duplicateSteps
+    extract (Steps _ w) = w 
+    duplicate tip@(Steps steps _) = 
+        let go sts = case Seq.viewr sts of  
+                Seq.EmptyR                            -> error "should never happen"
+                lefto Seq.:> (t',c',mandatory,steps') -> ((Steps lefto t'),c',mandatory,duplicate steps')
+        in Steps (fmap go (Seq.inits steps)) tip
 
 data Steps e w = Steps (Seq (w,e,Mandatoriness,Steps e w)) w deriving (Functor,Foldable,Traversable,Eq,Show)
 
@@ -103,15 +107,7 @@ foldSteps' f = go
     where
     go (Steps steps w) = f (fmap (\(w',e',mandatory,steps') -> (w',e',mandatory,go steps')) steps) w
 
-extractSteps :: Steps c w -> w
-extractSteps (Steps _ w) = w 
 
-duplicateSteps :: Steps c t -> Steps c (Steps c t)
-duplicateSteps tip@(Steps steps _) = Steps (fmap go (Seq.inits steps)) tip
-    where
-    go steps' = case Seq.viewr steps' of  
-        Seq.EmptyR                               -> error "should never happen"
-        lefto Seq.:> (t',c',mandatory,timeline') -> ((Steps lefto t'),c',mandatory,duplicateSteps timeline')
 
 bimapSteps ::  (e -> e') -> (w -> w') -> Plan e w m a b -> Plan e' w' m a b
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
@@ -124,7 +120,7 @@ zoomSteps setter = bimapSteps id (\w -> set' w mempty)
 hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan e w m a b -> Plan e w n a b
 hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
-data Tick_ = Skipping_ | Started_ | Finished_ deriving (Eq,Ord,Enum,Show)
+data Tick_ = Skipped' | Started' | Finished' deriving (Eq,Ord,Enum,Show)
 
 getSteps :: Plan s w m a b -> Steps s w
 getSteps (Plan forest _) = forest
@@ -142,14 +138,14 @@ mandatoriness (Steps previous w) = Steps (fmap go previous) w
 step :: (Monoid w,Monad m) => s -> Plan s w m a b -> Plan s w m a b
 step s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,Mandatory,forest)) mempty) 
-         (Star (\x -> yield Started_ *> f x <* yield Finished_))
+         (Star (\x -> yield Started' *> f x <* yield Finished'))
 
-skippable :: (Monoid w,Monad m) => s -> Plan s w m a () -> Plan s w m (Maybe a) ()
+skippable :: (Monoid w,Monad m) => s -> Plan s w m i o -> Plan s w m (Maybe i) ()
 skippable s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,Skippable,forest)) mempty) 
          (Star (\m -> case m of
-                        Just x -> yield Started_ *> f x <* yield Finished_
-                        Nothing -> yield Skipping_))
+                        Just x -> yield Started' *> f x *> yield Finished'
+                        Nothing -> yield Skipped'))
 
 foretell :: (Monad m) => w -> Plan s w m a ()
 foretell w = Plan (Steps mempty w) (pure ())  
@@ -182,16 +178,16 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 tickToForest :: Tick c t -> Forest (Maybe (Either t (t,Maybe t)),c)
 tickToForest (Tick upwards@(Context completed curr pending :| contexts) progress) = 
     case progress of 
-        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (extractTimeline completed)),curr) (skippedToForest forest (extractTimeline completed))] ++ pendingToForest pending) contexts
+        Skipped forest -> foldr contextToForest (completedToForest completed ++ [Node (Just (Left (extract completed)),curr) (skippedToForest forest (extract completed))] ++ pendingToForest pending) contexts
         Started forest -> foldr contextToForest (pendingToForest forest) upwards
-        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (extractTimeline completed,Just (extractTimeline timeline))),curr) (completedToForest timeline)] ++ pendingToForest pending) contexts
+        Finished timeline -> foldr contextToForest (completedToForest completed ++ [Node (Just (Right (extract completed,Just (extract timeline))),curr) (completedToForest timeline)] ++ pendingToForest pending) contexts
 
 contextToForest :: Context c t 
                 -> Forest (Maybe (Either t (t,Maybe t)),c)
                 -> Forest (Maybe (Either t (t,Maybe t)),c)
 contextToForest (Context completed c pending) below =
        completedToForest completed 
-    ++ [Node (Just (Right (extractTimeline completed,Nothing)),c) below] 
+    ++ [Node (Just (Right (extract completed,Nothing)),c) below] 
     ++ pendingToForest pending
 
 completedToForest :: Timeline c t -> Forest (Maybe (Either t (t,Maybe t)),c)
@@ -238,11 +234,12 @@ instance Bitraversable Timeline where
                                     <*> bitraverse (traverse (traverse g)) (bitraverse g f) substeps
 
 instance Comonad (Timeline s) where
-    extract = extractTimeline
-    duplicate = duplicateTimeline
-
-extractTimeline :: Timeline chapter t -> t
-extractTimeline (Timeline _ t) = t
+    extract (Timeline _ t) = t
+    duplicate tip@(Timeline steps t) = 
+        let go steps' = case Seq.viewr steps' of  
+                Seq.EmptyR -> error "should never happen"
+                lefto Seq.:> (t',c',timeline') -> ((Timeline lefto t'),c',fmap duplicate timeline')
+        in Timeline (fmap go (Seq.inits steps)) tip
 
 timelineToForest :: Timeline c t -> Forest c
 timelineToForest (Timeline past limit) = fmap (\(_,c,timeline') -> Node c (either id timelineToForest timeline')) (toList past)
@@ -261,12 +258,6 @@ foldTimeline' f = go
     where
     go (Timeline steps t) = f (fmap (\(t',c',foreste) -> (t',c',fmap go foreste)) steps) t
 
-duplicateTimeline :: Timeline c t -> Timeline c (Timeline c t)
-duplicateTimeline tip@(Timeline steps t) = Timeline (fmap go (Seq.inits steps)) tip
-    where
-    go steps' = case Seq.viewr steps' of  
-        Seq.EmptyR                   -> error "should never happen"
-        lefto Seq.:> (t',c',timeline') -> ((Timeline lefto t'),c',fmap duplicateTimeline timeline')
 
 data Context c measure = Context
                         {
@@ -314,19 +305,19 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                    (Left b,
                     RunState completed [] []) -> do 
                        return (Timeline completed measure,b) 
-                   (Right (Skipping_,stream'),
+                   (Right (Skipped',stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
                         yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
                                         (Skipped subforest))
                         go (RunState (previous Seq.|> (measure,root,Left subforest)) forest upwards)
                            stream'
-                   (Right (Started_,stream'),
+                   (Right (Started',stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
                         yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
                                         (Started subforest))
                         go (RunState mempty subforest (Context (Timeline previous measure) root forest : upwards))
                            stream'
-                   (Right (Finished_,stream'),
+                   (Right (Finished',stream'),
                     RunState previous [] (ctx@(Context recap root next) : upwards)) -> do
                         yield (Tick (ctx :| upwards)
                                         (Finished (Timeline previous measure)))
@@ -372,3 +363,4 @@ foldTree_ :: (a -> [b] -> b) -> Tree a -> b
 foldTree_ f = go where
     go (Node x ts) = f x (map go ts)
 
+-- TODO: Plan s w m i o. Timeline s t. Lasagna n a.
