@@ -310,13 +310,13 @@ runPlan makeMeasure (Plan steps (Star f)) initial =
                    (Right (Skipped',stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
                         yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
-                                        (Skipped subforest))
+                                    (Skipped subforest))
                         go (RunState (previous Seq.|> (measure,root,Left subforest)) forest upwards)
                            stream'
                    (Right (Started',stream'),
                     RunState previous (Node root subforest:forest) upwards) -> do
                         yield (Tick (Context (Timeline previous measure) root forest :| upwards) 
-                                        (Started subforest))
+                                    (Started subforest))
                         go (RunState mempty subforest (Context (Timeline previous measure) root forest : upwards))
                            stream'
                    (Right (Finished',stream'),

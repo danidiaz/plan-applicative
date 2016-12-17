@@ -1,8 +1,5 @@
 -- | This module exports the 'Plan' Applicative.
 
-{-# language DeriveFunctor #-}
-{-# language FlexibleInstances #-}
-{-# language PatternSynonyms #-}
 module Control.Plan (
                     -- * Constructing plans
                      Plan
@@ -28,6 +25,7 @@ module Control.Plan (
                     -- * Running plans
                     ,runPlan
                     ,tickToForest
+                    ,mapTickM
                     ,Tick(..)
                     ,Context(..)
                     ,Progress(..)
@@ -43,7 +41,6 @@ module Control.Plan (
                     ,Data.Bitraversable.bitraverse
                     ,Control.Comonad.extract
                     ,Streaming.hoist
-                    ,mapTickM
                     ,Streaming.Prelude.effects
                     ) where
 
