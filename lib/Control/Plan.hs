@@ -43,8 +43,8 @@ module Control.Plan (
                     ,Data.Bitraversable.bitraverse
                     ,Control.Comonad.extract
                     ,Streaming.hoist
-                    ,Streaming.Prelude.effects
                     ,mapTickM
+                    ,Streaming.Prelude.effects
                     ) where
 
 import Data.Bifunctor
