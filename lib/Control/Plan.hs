@@ -34,6 +34,8 @@ module Control.Plan (Plan
                     ,planIO
                     ,planK
                     ,planKIO
+                    -- * The Lasagne typeclass
+                    ,Lasagne(..)
                     ) where
 
 import Prelude hiding ((.),id)
