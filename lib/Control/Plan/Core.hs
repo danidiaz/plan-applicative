@@ -56,14 +56,6 @@ instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
-instance Comonad (Steps s) where
-    extract (Steps _ w) = w 
-    duplicate tip@(Steps steps _) = 
-        let go sts = case Seq.viewr sts of  
-                Seq.EmptyR                            -> error "should never happen"
-                lefto Seq.:> (t',c',mandatory,steps') -> ((Steps lefto t'),c',mandatory,duplicate steps')
-        in Steps (fmap go (Seq.inits steps)) tip
-
 data Steps e w = Steps (Seq (w,e,Mandatoriness,Steps e w)) w deriving (Functor,Foldable,Traversable,Eq,Show)
 
 data Mandatoriness = Skippable
