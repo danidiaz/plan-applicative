@@ -13,7 +13,9 @@ module Control.Plan.Core (module Control.Plan.Core) where
 import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
 import Data.Bifunctor(Bifunctor,bimap)
+import Data.Bifunctor.Clown
 import Data.Tree
+import Data.Functor.Compose
 import Data.Monoid
 import Data.List.NonEmpty (NonEmpty((:|)),(<|))
 import qualified Data.List.NonEmpty as NonEmpty
@@ -32,6 +34,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
 import Streaming (hoist)
+import qualified Streaming.Prelude
 import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
 data Plan s w m a b = Plan (Steps s w) (Star (Stream (Of Tick_) m) a b) deriving Functor
@@ -274,11 +277,14 @@ data Context c measure = Context
 
 data Tick c measure = Tick (NonEmpty (Context c measure)) (Progress c measure) deriving (Functor,Foldable,Traversable) 
 
+
 data Progress c measure = Skipped  (Forest c)
                          | Started (Forest c)
                          | Finished (Timeline c measure)
                          deriving (Functor,Foldable,Traversable) 
 
+mapTickM :: Monad m => (a -> m b) -> Stream (Of a) m r -> Stream (Of b) m r
+mapTickM = Streaming.Prelude.mapM
 
 runPlan :: Monad m 
            => m measure -- ^
@@ -318,9 +324,36 @@ data RunState c measure = RunState !(Seq (measure,c,Either (Forest c) (Timeline 
                                    !(Forest c) 
                                    ![Context c measure]
 
--- TODO Add tickToForest <- working on it
--- TODO Some kind of run-in-io function to avoid having to always import streaming  
--- TODO Add "durations :: Timeline -> ..." to use with zipSteps.
--- TODO Express Steps and Timeline in terms of Lasanga.
--- TODO hide implementations of Steps and Timeline. All occurrences of Seq.
--- TODO bifoldable & bitraversable for Timeline <- prerrequisite for.  
+class (Bitraversable l) => Lasagna l where
+    paths    :: l s w -> l (NonEmpty s) w
+    toForest :: l s w -> Forest s
+
+instance Lasagna Steps where
+    paths steps = 
+        let algebra ws r acc = Steps (fmap (downwards acc) ws) r  
+            downwards acc (w',s',mandatoriness,func) = (w',s':|acc,mandatoriness,func (s':acc))
+        in foldSteps' algebra steps []
+    toForest = stepsToForest
+
+instance Lasagna Timeline where
+    paths steps = 
+        let algebra ws r acc = Timeline (fmap (downwards acc) ws) r  
+            downwards acc (w',s',funce) = (w',s':|acc,bimap (fmap (inheritTree (s':acc))) (\f -> f (s':acc)) funce)
+        in foldTimeline' algebra steps []
+    toForest = timelineToForest
+
+instance Lasagna (Clown (Compose [] Tree)) where
+    paths (Clown (Compose forest)) = (Clown (Compose (fmap (inheritTree []) forest)))
+    toForest (Clown (Compose forest)) = forest 
+
+inheritTree :: [a] -> Tree a -> Tree (NonEmpty a)
+inheritTree acc tree = foldTree_ algebra tree acc where
+    algebra :: a -> [[a] -> Tree (NonEmpty a)] -> [a] -> Tree (NonEmpty a)
+    algebra a fs as = Node (a:|as) (fs <*> [a:as]) 
+
+-- | A tree catamorphism. This function already exists in the latest version of
+-- "containers"
+foldTree_ :: (a -> [b] -> b) -> Tree a -> b
+foldTree_ f = go where
+    go (Node x ts) = f x (map go ts)
+

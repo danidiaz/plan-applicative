@@ -3,50 +3,64 @@
 {-# language DeriveFunctor #-}
 {-# language FlexibleInstances #-}
 {-# language PatternSynonyms #-}
-module Control.Plan (Plan
+module Control.Plan (
+                    -- * Constructing plans
+                     Plan
+                    ,plan
+                    ,planIO
+                    ,planK
+                    ,planKIO
+                    -- ** Declaring steps and annotations
+                    ,step
+                    ,skippable
+                    ,foretell
+                    -- * Analyzing plans
+                    ,getSteps
                     ,Steps
                     ,Mandatoriness(..)
+                    ,mandatoriness
+                    ,foldSteps
                     -- * Adapting plans
                     ,bimapSteps
                     ,zoomSteps
                     ,zipSteps
                     ,hoistPlan
-                    -- * Analyzing plans
-                    ,getSteps
-                    ,foldSteps
-                    ,mandatoriness
-                    ,stepsToForest
                     -- * Running plans
-                    ,unliftPlan
                     ,runPlan
                     ,tickToForest
                     ,Tick(..)
                     ,Context(..)
                     ,Progress(..)
                     ,Timeline
-                    ,foldTimeline
                     ,instants
-                    -- * Declaring steps and annotations
-                    ,step
-                    ,foretell
-                    -- * Constructing plans
-                    ,plan
-                    ,planIO
-                    ,planK
-                    ,planKIO
-                    -- * The Lasagne typeclass
-                    ,Lasagne(..)
+                    ,foldTimeline
+                    ,unliftPlan
+                    -- * The Lasagna typeclass
+                    ,Lasagna(..)
+                    -- * Re-exports
+                    ,Control.Comonad.extract
+                    ,Data.Bifunctor.bimap
+                    ,Data.Bifoldable.bifoldMap
+                    ,Data.Bitraversable.bitraverse
+                    ,Streaming.hoist
+                    ,Streaming.Prelude.effects
+                    ,mapTickM
                     ) where
 
 import Prelude hiding ((.),id)
 import Data.Tree
+import Data.Bifunctor
+import Data.Bifoldable
+import Data.Bitraversable
 import Data.Profunctor (Profunctor(..),Star(..))
 import Control.Category
 import Control.Applicative
+import Control.Comonad
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Arrow
-import Streaming.Prelude (Stream,Of(..),yield)
+import Streaming
+import Streaming.Prelude
 
 import Control.Plan.Core
