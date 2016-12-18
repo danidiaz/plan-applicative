@@ -96,7 +96,7 @@ testRunMulti = do
                             (length ticks) 
       let simpleTicks = map (\(Tick ctxs progress) -> (toList . fmap (extract.completed) $ ctxs
                                                       ,toList . fmap current $ ctxs
-                                                      , progressToTick' progress)) 
+                                                      ,progressToTick' progress)) 
                             ticks
       assertEqual "tickTypes" [("b" ,["a"],Started')
                               ,("cb",["a1","a"],Started')
@@ -112,7 +112,11 @@ testRunMulti = do
                               ,("h" ,["b"],Finished')
                               ]
                               simpleTicks
+      let forestTicks = take 3 . map tickToForest $ ticks
+      assertEqual "tickForests" []
+                                forestTicks
 
 -- TODO Test catamorphisms
+-- TODO Test tickToForest
 -- TODO Test mandatoriness associations
 -- TODO Test mandatoriness during execution
