@@ -298,14 +298,14 @@ onTick :: Monad m => (tick -> m ()) -> Stream (Of tick) m r -> m r
 onTick = Streaming.Prelude.mapM_
 
 runPlan :: Monad m 
-        => m t -- ^
-        -> Plan s w m () o 
-        -> Stream (Of (Tick s t)) m (Timeline s t,o)
+        => m t -- ^ Monadic measurement to be taken on each tick.
+        -> Plan s w m () o -- ^ Plan without input.
+        -> Stream (Of (Tick s t)) m (Timeline s t,o) 
 runPlan measurement p = runPlanK measurement p () 
 
 runPlanK :: Monad m 
-         => m t -- ^
-         -> Plan s w m i o 
+         => m t -- ^ Monadic measurement to be taken on each tick.
+         -> Plan s w m i o -- ^ Plan that takes input.
          -> i 
          -> Stream (Of (Tick s t)) m (Timeline s t,o)
 runPlanK makeMeasure (Plan steps (Star f)) initial = 
