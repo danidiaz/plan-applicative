@@ -330,9 +330,11 @@ runPlanK makeMeasure (Plan steps (Star f)) initial =
                            stream'
                    (Right (Finished',stream'),
                     RunState previous' [] (ctx@(Context {completed,current,pending}) : upwards)) -> do
+                        let subtimeline = Timeline previous' measure
+                            Timeline previous'' instant = completed
                         yield (Tick (ctx :| upwards)
-                                    (Finished (Timeline previous' measure)))
-                        go (RunState (previous' Seq.|> (measure,current,Right completed)) pending upwards)
+                                    (Finished subtimeline))
+                        go (RunState (previous'' Seq.|> (instant,current,Right subtimeline)) pending upwards)
                            stream'
                    _ -> error "should never happen"
       in go (RunState mempty (toForest steps) []) (f initial)

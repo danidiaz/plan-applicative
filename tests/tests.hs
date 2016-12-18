@@ -8,6 +8,7 @@ module Main where
 
 import Data.Monoid
 import Data.Foldable
+import Data.Tree
 
 import Control.Monad
 import Control.Monad.Trans.Writer
@@ -36,7 +37,8 @@ tests = testGroup "Tests" [testCase "simple" testSimple
 testSimple :: IO ()
 testSimple = do
     let plan' = pure 7 :: Plan Char () IO () Int
-    assertEqual "" (bifoldMap pure (const []) (getSteps plan')) []
+    assertEqual "" []
+                   (bifoldMap pure (const []) (getSteps plan')) 
 
 multi :: Plan String [Int] (Writer [String]) () ()
 multi = do
@@ -49,8 +51,7 @@ multi = do
     return ()
 
 testMulti :: IO ()
-testMulti = assertEqual "" (bifoldMap (pure . Left) (map Right) . getSteps $ multi)
-                           [Left "a"
+testMulti = assertEqual "" [Left "a"
                            ,Left "a1"
                            ,Right 1
                            ,Right 2
@@ -65,10 +66,16 @@ testMulti = assertEqual "" (bifoldMap (pure . Left) (map Right) . getSteps $ mul
                            ,Right 7
                            ,Right 8
                            ]
+                           (bifoldMap (pure . Left) (map Right) . getSteps $ multi)
 
 testPathsMulti :: IO ()
-testPathsMulti = assertEqual "" (map toList . bifoldMap pure (const []) . paths . getSteps $ multi)
-                                [["a"],["a1","a"],["a2","a"],["b"],["b1","b"],["b2","b"]]
+testPathsMulti = assertEqual "" [["a"],["a1","a"],["a2","a"],["b"],["b1","b"],["b2","b"]]
+                                (map toList . bifoldMap pure (const []) . paths . getSteps $ multi)
+
+progressToTick' :: Progress s t -> Tick' 
+progressToTick' (Skipped {}) = Skipped'
+progressToTick' (Started {}) = Started'
+progressToTick' (Finished {}) = Finished'
 
 testRunMulti :: IO ()
 testRunMulti = do
@@ -78,5 +85,30 @@ testRunMulti = do
                                               . flip runStateT 'a'
                                               . Streaming.Prelude.toList 
                                               . runPlan addToCounter $ multi' 
-      assertEqual "ticksLen" (length ticks) 12
-      assertEqual "timeline" (toForest (instants timeline)) []
+      assertEqual "timeline" [Node (Right ('b','g'),"a") [Node (Right ('c','d'),"a1") []
+                                                         ,Node (Right ('e','f'),"a2") []]
+                             ,Node (Right ('h','m'),"b") [Node (Right ('i','j'),"b1") []
+                                                         ,Node (Right ('k','l'),"b2") []]]
+                             (toForest (instants timeline))
+      assertEqual "timelineEnd" 'n' 
+                                (extract timeline)
+      assertEqual "ticksLen" 12 
+                            (length ticks) 
+      let simpleTicks = map (\(Tick ctxs progress) -> (toList . fmap (extract.completed) $ ctxs
+                                                      ,toList . fmap current $ ctxs
+                                                      , progressToTick' progress)) 
+                            ticks
+      assertEqual "tickTypes" [("b" ,["a"],Started')
+                              ,("cb",["a1","a"],Started')
+                              ,("cb",["a1","a"],Finished')
+                              ,("eb",["a2","a"],Started')
+                              ,("eb",["a2","a"],Finished')
+                              ,("b" ,["a"],Finished')
+                              ,("h" ,["b"],Started')
+                              ,("ih",["b1","b"],Started')
+                              ,("ih",["b1","b"],Finished')
+                              ,("kh",["b2","b"],Started')
+                              ,("kh",["b2","b"],Finished')
+                              ,("h" ,["b"],Finished')
+                              ]
+                              simpleTicks
