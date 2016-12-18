@@ -112,3 +112,7 @@ testRunMulti = do
                               ,("h" ,["b"],Finished')
                               ]
                               simpleTicks
+
+-- TODO Test catamorphisms
+-- TODO Test mandatoriness associations
+-- TODO Test mandatoriness during execution
