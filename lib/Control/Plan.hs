@@ -23,16 +23,19 @@ module Control.Plan (
                     ,zipSteps
                     ,hoistPlan
                     -- * Running plans
+                    ,unliftPlan
                     ,runPlan
-                    ,tickToForest
                     ,onTick
+                    ,tickToForest
                     ,Tick(..)
                     ,Context(..)
                     ,Progress(..)
                     ,Timeline
                     ,instants
                     ,foldTimeline
-                    ,unliftPlan
+                    -- ** Running arrow plans
+                    ,unliftPlanK
+                    ,runPlanK
                     -- * The Lasagna typeclass
                     ,Lasagna(..)
                     -- * Re-exports

@@ -205,8 +205,11 @@ pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 skippedToForest :: Forest c -> t -> Forest (Maybe (Either t (t,Maybe t)),c)
 skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
 
-unliftPlan :: Monad m => Plan s w m i o -> i -> m o
-unliftPlan p i = extract <$> effects (runPlan (pure ()) p i)
+unliftPlan :: Monad m => Plan s w m () o -> m o
+unliftPlan p = extract <$> effects (runPlanK (pure ()) p ())
+
+unliftPlanK :: Monad m => Plan s w m i o -> i -> m o
+unliftPlanK p i = extract <$> effects (runPlanK (pure ()) p i)
 
 data Timeline s t = Timeline !(Seq (t,s,Either (Forest s) (Timeline s t))) t 
                   deriving (Functor,Foldable,Traversable,Eq,Show)
@@ -295,11 +298,17 @@ onTick :: Monad m => (tick -> m ()) -> Stream (Of tick) m r -> m r
 onTick = Streaming.Prelude.mapM_
 
 runPlan :: Monad m 
-           => m t -- ^
-           -> Plan s w m i o 
-           -> i 
-           -> Stream (Of (Tick s t)) m (Timeline s t,o)
-runPlan makeMeasure (Plan steps (Star f)) initial = 
+        => m t -- ^
+        -> Plan s w m () o 
+        -> Stream (Of (Tick s t)) m (Timeline s t,o)
+runPlan measurement p = runPlanK measurement p () 
+
+runPlanK :: Monad m 
+         => m t -- ^
+         -> Plan s w m i o 
+         -> i 
+         -> Stream (Of (Tick s t)) m (Timeline s t,o)
+runPlanK makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                measure <- lift makeMeasure
