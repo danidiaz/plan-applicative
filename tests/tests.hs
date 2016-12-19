@@ -113,10 +113,21 @@ testRunMulti = do
                               ]
                               simpleTicks
       let forestTicks = take 3 . map tickToForest $ ticks
-      assertEqual "tickForests" []
+      assertEqual "tickForests" [[Node (Just (Right ('b',Nothing)),"a") [Node (Nothing,"a1") []
+                                                                        ,Node (Nothing,"a2") []]
+                                 ,Node (Nothing,"b") [Node (Nothing,"b1") []
+                                                     ,Node (Nothing,"b2") []]]
+                                ,[Node (Just (Right ('b',Nothing)),"a") [Node (Just (Right ('c',Nothing)),"a1") []
+                                                                        ,Node (Nothing,"a2") []]
+                                 ,Node (Nothing,"b") [Node (Nothing,"b1") []
+                                                     ,Node (Nothing,"b2") []]]
+
+                                ,[Node (Just (Right ('b',Nothing)),"a") [Node (Just (Right ('c',Just 'd')),"a1") []
+                                                                        ,Node (Nothing,"a2") []]
+                                 ,Node (Nothing,"b") [Node (Nothing,"b1") []
+                                                     ,Node (Nothing,"b2") []]]]
                                 forestTicks
 
 -- TODO Test catamorphisms
--- TODO Test tickToForest
 -- TODO Test mandatoriness associations
 -- TODO Test mandatoriness during execution

@@ -165,7 +165,7 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 tickToForest :: Tick s t -> Forest (Maybe (Either t (t,Maybe t)),s)
 tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progress) = 
     case progress of 
-        Skipped forest -> foldr contextToForest 
+        Skipped forest -> foldl contextToForest 
                                 ( completedToForest completed 
                                   ++ 
                                   [Node (Just (Left (extract completed))
@@ -174,10 +174,10 @@ tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progr
                                   ++
                                   pendingToForest pending ) 
                                 contexts
-        Started forest -> foldr contextToForest 
+        Started forest -> foldl contextToForest 
                                 (pendingToForest forest) 
                                 upwards
-        Finished timeline -> foldr contextToForest 
+        Finished timeline -> foldl contextToForest 
                                    ( completedToForest completed 
                                      ++ 
                                      [Node (Just (Right (extract completed,Just (extract timeline)))
@@ -186,10 +186,10 @@ tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progr
                                      ++ pendingToForest pending ) 
                                    contexts
 
-contextToForest :: Context s t 
+contextToForest :: Forest (Maybe (Either t (t,Maybe t)),s)
+                -> Context s t 
                 -> Forest (Maybe (Either t (t,Maybe t)),s)
-                -> Forest (Maybe (Either t (t,Maybe t)),s)
-contextToForest (Context {completed,current,pending}) below =
+contextToForest below (Context {completed,current,pending}) =
        completedToForest completed 
     ++ [Node (Just (Right (extract completed,Nothing)),current) below] 
     ++ pendingToForest pending
