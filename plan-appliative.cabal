@@ -1,5 +1,5 @@
 name:                plan-applicative
-version:             0.0.0.0
+version:             1.0.0.0
 synopsis:            Applicative/Arrow for progress tracking and static analysis.
 description:         A writer-like Applicative/Arrow for progress tracking and static analysis.
 license:             BSD3
