@@ -11,7 +11,7 @@ The following infuriating situations happen:
 
 - The script fails at minute 45 because of a syntax error.
 - The script fails at minute 45 because it requests a missing resource whose
-  avaliability could have been checked at script start.
+  availability could have been checked when the script started.
 - It is difficult to ascertain how far along the execution we are at minute 45.
 
 The first problem is solved by using a statically typed language or, for
