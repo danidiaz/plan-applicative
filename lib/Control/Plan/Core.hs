@@ -44,7 +44,7 @@ import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 -- Computations can have monoidal resource annotations of type @w@.
 --
 -- The structure of steps and the monoidal annotations can be inspected before
--- executing the computations.
+-- executing the 'Plan'.
 data Plan s w m i o = Plan (Steps s w) (Star (Stream (Of Tick') m) i o) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan s w m i) where
@@ -108,7 +108,7 @@ instance Monoid w => Monoid (Steps s w) where
             (w',s,mandatoriness',substeps) Seq.:< s2' -> 
                 Steps (s1 `mappend` ((w1 `mappend` w',s,mandatoriness',substeps) Seq.<| s2')) w2
 
--- | A catamorphism on 'Steps', that "destroys" the 'Step' value from the
+-- | A catamorphism on 'Steps', that "destroys" the 'Steps' value from the
 -- leaves upwards.
 --
 -- Unlike 'foldMap' or 'bifoldMap', it allows a more structured analysis of the

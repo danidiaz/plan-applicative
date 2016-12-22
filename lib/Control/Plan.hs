@@ -5,7 +5,7 @@
         example = 
             step "(a)" (step "(a.a)" (foretell [1] *>
                                       plan (threadDelay 1e6)) *>
-                        step "(a.a)" (foretell [2] *>
+                        step "(a.b)" (foretell [2] *>
                                       plan (threadDelay 1e6))) *>
             step "(b)" (step "(b.a)" (foretell [3] *>
                                       plan (threadDelay 1e6)) *>
@@ -14,7 +14,7 @@
     in 
     bifoldMap id (foldMap Prelude.show) (getSteps example)
 :}
-"(a)(a.a)1(a.a)2(b)(b.a)3(b.b)4"
+"(a)(a.a)1(a.b)2(b)(b.a)3(b.b)4"
 
 Some possible use cases:
 
