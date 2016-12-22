@@ -64,9 +64,13 @@ instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
+-- | A 'Data.Tree.Forest' of steps tags of type @s@ interspersed with monoidal
+-- annotations of type @w@.
 data Steps s w = Steps !(Seq (w,s,Mandatoriness,Steps s w)) w 
                deriving (Functor,Foldable,Traversable,Eq,Show)
 
+-- | Steps of 'Plan's constructed in 'Applicative' fashion are always
+-- 'Mandatory'. Only steps declared with 'skippable' are optional.
 data Mandatoriness = Skippable
                    | Mandatory
                    deriving (Show,Eq,Ord)
@@ -77,6 +81,8 @@ instance Bifunctor Steps where
         in  Steps (fmap go steps) w
     second = fmap
 
+-- | 'bifoldMap' allows extracting the steps and the annotations together. 
+--
 instance Bifoldable Steps where
     bifoldMap g f (Steps steps w) = 
         foldMap (\(w',s,_,substeps) -> f w'
@@ -102,7 +108,15 @@ instance Monoid w => Monoid (Steps s w) where
             (w',s,mandatoriness',substeps) Seq.:< s2' -> 
                 Steps (s1 `mappend` ((w1 `mappend` w',s,mandatoriness',substeps) Seq.<| s2')) w2
 
-foldSteps :: ([(w,s,Mandatoriness,r)] -> w -> r) -> Steps s w -> r
+-- | A catamorphism on 'Step's, that "destroys" the 'Step' value from the
+-- leaves upwards.
+--
+-- Unlike 'foldMap' or 'bifoldMap', it allows a more structured analysis of the
+-- annotations, by preserving their relationship with the hierarchy of steps.
+--
+foldSteps :: ([(w,s,Mandatoriness,r)] -> w -> r) -- ^ A function that consumes a list of step tags of type @s@, surrounded and interleaved with annotations of type @w@. Each step is also annotated with its mandatoriness and with the result @r@ of consuming its substeps, if there were any.
+          -> Steps s w 
+          -> r
 foldSteps f = foldSteps' (\steps -> f (toList steps))
 
 foldSteps' :: (Seq (w,s,Mandatoriness,r) -> w -> r) -> Steps s w -> r
@@ -111,32 +125,45 @@ foldSteps' f = go
     go (Steps steps w) = 
         f (fmap (\(w',e',mandatoriness',substeps) -> (w',e',mandatoriness',go substeps)) steps) w
 
+-- | Adapt the 'Step' value inside a 'Plan' without extracting it.
 bimapSteps ::  (s -> s') -> (w -> w') -> Plan s w m i o -> Plan s' w' m i o
 bimapSteps f g (Plan steps star) = Plan (Bifunctor.bimap f g steps) star
 
+-- | Use a lens setter to "zoom" the monoidal annotations of a 'Plan' into a
+-- wider monoidal context.
 zoomSteps :: Monoid w' => ((w -> Identity w) -> w' -> Identity w') -> Plan s w m i o -> Plan s w' m i o
 zoomSteps setter = bimapSteps id (\w -> set' w mempty)
     where
     set' w = runIdentity . setter (Identity . const w)
 
+-- | Change the underlying monad of a 'Plan'.
 hoistPlan :: Monad m => (forall x. m x -> n x) -> Plan s w m i o -> Plan s w n i o
 hoistPlan trans (Plan steps (Star f)) = Plan steps (Star (hoist trans . f)) 
 
 data Tick' = Skipped' | Started' | Finished' deriving (Eq,Ord,Enum,Show)
 
+-- | Inspect a plan without executing it.
 getSteps :: Plan s w m i o -> Steps s w
 getSteps (Plan steps _) = steps
 
+-- | Decorate each step tag with its mandatoriness. Useful in combination with 'toForest'.
 mandatoriness :: Steps s w -> Steps (Mandatoriness,s) w
 mandatoriness (Steps steps w) = Steps (fmap go steps) w
     where
     go (w',s,mandatory,substeps) = (w',(mandatory,s),mandatory,mandatoriness substeps)
 
+-- | Declare a step by wrapping an existing plan (which may contain substeps).
 step :: (Monoid w,Monad m) => s -> Plan s w m i o -> Plan s w m i o
 step s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,Mandatory,forest)) mempty) 
          (Star (\x -> yield Started' *> f x <* yield Finished'))
 
+-- | Declare an optional step by wrapping an existing arrow plan. The step will
+-- only be executed when the input is 'Just'.
+--
+-- This function only makes sense when using the 'Arrow' instance of 'Plan',
+-- because for 'Applicative's an effect cannot depend on previously obtained
+-- values.
 skippable :: (Monoid w,Monad m) => s -> Plan s w m i o -> Plan s w m (Maybe i) ()
 skippable s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,Skippable,forest)) mempty) 
@@ -144,6 +171,11 @@ skippable s (Plan forest (Star f)) =
                         Just x -> yield Started' *> f x *> yield Finished'
                         Nothing -> yield Skipped'))
 
+-- | Declare a monoidal annotation. The annotation can be later inspected
+-- without having to run the 'Plan'.
+--
+-- Usually the annotations will represent resources that the 'Plan' is expected
+-- to require.
 foretell :: (Monad m) => w -> Plan s w m i ()
 foretell w = Plan (Steps mempty w) (pure ())  
 
@@ -174,6 +206,14 @@ zipSteps' forest (Steps substeps w)
         in  flip Steps w <$> traverse go paired 
     | otherwise = Nothing
 
+-- | Pair each step tag @s@ inside a 'Plan' with the corresponding element of the 'Forest'.
+--
+-- If the forest doesn't have the same structure as the steps, the function
+-- fails with 'Nothing'.
+--
+-- This function can be useful to annotate each step tag with some information,
+-- for example the time duration of the step in a previous execution of the
+-- plan. See 'Timeline', 'instants', and 'toForest'.
 zipSteps :: Forest s' -> Plan s w m i o -> Maybe (Plan (s',s) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
@@ -264,6 +304,8 @@ instance Comonad (Timeline s) where
                 lefto Seq.:> (t',c',timeline') -> ((Timeline lefto t'),c',fmap duplicate timeline')
         in Timeline (fmap go (Seq.inits steps)) tip
 
+-- | Decorate each step tag with either the time the step was skipped, or the
+-- time it was started and finished. Useful in combination with 'toForest'.
 instants :: Timeline s t -> Timeline (Either t (t,t),s) t
 instants (Timeline past limit) = Timeline (fmap go past) limit
     where
@@ -371,6 +413,8 @@ class (Bitraversable l) => Lasagna l where
     -- | Forget about the annotations and return the underlying 'Data.Tree.Forest'.
     toForest :: l n a -> Forest n
 
+-- | 'toForest' forgets about the annotations and returns a 'Forest' of step
+-- tags.
 instance Lasagna Steps where
     paths steps = 
         let algebra ws r acc = Steps (fmap (downwards acc) ws) r  
@@ -379,6 +423,8 @@ instance Lasagna Steps where
     toForest (Steps steps _) = 
         map (\(_,e,_,steps') -> Node e (toForest steps')) (toList steps) 
 
+-- | 'toForest' forgets about the measurements and returns a 'Forest' of step
+-- tags.
 instance Lasagna Timeline where
     paths steps = 
         let algebra ws r acc = Timeline (fmap (downwards acc) ws) r  
