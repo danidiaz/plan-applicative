@@ -15,6 +15,28 @@
     bifoldMap id (foldMap Prelude.show) (getSteps example)
 :}
 "(a)(a.a)1(a.a)2(b)(b.a)3(b.b)4"
+
+Some possible use cases:
+
+- Inspect the steps of an existing 'Plan' from @ghci@ using 'getSteps',
+  'toForest' and 'Data.Tree.drawForest', as a form of documentation.
+
+- If your script requires files that must be already present in the file
+  system, use 'foretell' to annotate each 'Plan' action that requires a file,
+  then get the list of files using 'getSteps' and 'foldMap', and check that
+  they all exist before running the 'Plan' with 'runPlan'.
+
+- Get progress updates for your script by declaring (possibly nested) steps
+  with 'step', running the 'Plan' with 'runPlan', and providing a notification
+  callback with 'onTick', probably using 'tickToForest' and
+  'Data.Tree.drawForest' to render the updates.
+
+- Run a 'Plan' with 'runPlan', use 'instants' an 'toForest' on the resulting
+  'Timeline' to get the durations of each step, then use 'zipSteps' on the same 
+  'Plan' and
+  run it again. Now whenever a step finishes we can know if it took more or
+  less than in the previous execution.
+
 -}
 module Control.Plan (
                     -- * Constructing plans

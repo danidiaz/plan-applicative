@@ -217,6 +217,12 @@ zipSteps' forest (Steps substeps w)
 zipSteps :: Forest s' -> Plan s w m i o -> Maybe (Plan (s',s) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
+-- | Transform a 'Tick' into a form more suitable for rendering with functions
+-- like 'Data.Tree.drawForest'.
+--
+-- A given step might not have been reached yet. It it has been reached, either
+-- it has been skipped at a certain time, or started at a certain time. If if
+-- has been started, maybe it has already finised, too.
 tickToForest :: Tick s t -> Forest (Maybe (Either t (t,Maybe t)),s)
 tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progress) = 
     case progress of 
@@ -268,6 +274,8 @@ unliftPlan p = extract <$> effects (runPlanK (pure ()) p ())
 unliftPlanK :: Monad m => Plan s w m i o -> i -> m o
 unliftPlanK p i = extract <$> effects (runPlanK (pure ()) p i)
 
+-- | A 'Data.Tree.Forest' of steps tags of type @s@ interspersed with
+-- measurements of type @t@.
 data Timeline s t = Timeline !(Seq (t,s,Either (Forest s) (Timeline s t))) t 
                   deriving (Functor,Foldable,Traversable,Eq,Show)
 
@@ -296,6 +304,7 @@ instance Bitraversable Timeline where
                                     <*> g e 
                                     <*> bitraverse (traverse (traverse g)) (bitraverse g f) substeps
 
+-- | 'Timeline's always have at least one measurement. 'extract' gives the final measurement.
 instance Comonad (Timeline s) where
     extract (Timeline _ t) = t
     duplicate tip@(Timeline steps _) = 
@@ -312,7 +321,12 @@ instants (Timeline past limit) = Timeline (fmap go past) limit
     go (t',c',Left forest)     = (t',(Left  t',c')                    ,Left  (fmap (fmap (\x -> (Left t',x))) forest))
     go (t',c',Right timeline') = (t',(Right (t',extract timeline'),c'),Right (instants timeline'))
 
-foldTimeline :: ([(t,s,Either (Forest s) r)] -> t -> r) -> Timeline s t -> r
+-- | A catamorphism on 'Timeline's, that "destroys" the 'Timeline' value from the
+-- leaves upwards.
+--
+foldTimeline :: ([(t,s,Either (Forest s) r)] -> t -> r) -- ^ A function that consumes a list of step tags of type @s@, surrounded and interleaved with measurements of type @t@. Each step is also annotated with either its substeps, if it the step was skipped, or the results of consuming the substeps, if it was executed.
+             -> Timeline s t 
+             -> r
 foldTimeline f = foldTimeline' (\steps -> f (toList steps))
     
 foldTimeline' :: (Seq (t,c,Either (Forest c) r) -> t -> r) -> Timeline c t -> r
@@ -320,6 +334,9 @@ foldTimeline' f = go
     where
     go (Timeline steps t) = f (fmap (\(t',c',foreste) -> (t',c',fmap go foreste)) steps) t
 
+-- | Represents how far we are along a sequence of sibling steps.
+--
+-- For the already completed steps, a 'Timeline' of measurements is provided. 'extract' for the 'Timeline' returns the starting measurement of the current step.
 data Context s t = Context
                  {
                    completed :: Timeline s t
@@ -334,6 +351,14 @@ instance Bifunctor Context where
                         (fmap (fmap f) pending)
     second = fmap
 
+-- | Represents some kind of progress through the 'Steps' of a 'Plan' while the
+-- plan executes.
+-- 
+-- The ascending list of contexts provides the current position of the
+-- execution along the hierarchy of steps.
+--
+-- If the plan only has a linear sequence of steps, the list will have only one
+-- 'Context'.
 data Tick s t = Tick (NonEmpty (Context s t)) (Progress s t) 
                 deriving (Functor,Foldable,Traversable,Eq,Show) 
 
@@ -342,9 +367,11 @@ instance Bifunctor Tick where
                 Tick (fmap (Bifunctor.first f) contexts) (Bifunctor.first f progress)
     second = fmap
 
-data Progress s t = Skipped  (Forest s)
-                  | Started (Forest s)
-                  | Finished (Timeline s t)
+-- | The execution of a 'Plan' can make progress by skipping a step, starting a
+-- step, or finishing a step.
+data Progress s t = Skipped  (Forest s) -- ^ Provides the substeps that were skipped.
+                  | Started (Forest s) -- ^ Provides the substeps that will be executed next.
+                  | Finished (Timeline s t) -- ^ Provides a 'Timeline' of measurements for the completed substeps. 'extract' for the 'Timeline' gives the finishing measurement for the current step.
                     deriving (Functor,Foldable,Traversable,Eq,Show) 
 
 instance Bifunctor Progress where
@@ -353,15 +380,29 @@ instance Bifunctor Progress where
     first f (Finished timeline) = Finished (bimap f id timeline)
     second = fmap
 
+-- | Specify a monadic callback for processing each 'Tick' update.
 onTick :: Monad m => (tick -> m ()) -> Stream (Of tick) m r -> m r
 onTick = Streaming.Prelude.mapM_
 
+-- | Runs a plan that doesn't need input. It returns a 'Stream' of 'Tick'
+-- updates that are emitted every time the execution advances through the
+-- 'Steps'. 
+--
+-- For each 'Tick' update, a monadic measurement of type @t@ is taken. Usually
+-- the measurement consists in getting the current time.
+--
+-- When the execution finishes, a 'Timeline' with the measurements for each
+-- 'Tick' is returned, along with the result value. 
+--
+-- Even if the plan didn't have any steps, the 'Timeline' will contain a
+-- measurement taken when the computation finished.
 runPlan :: Monad m 
         => m t -- ^ Monadic measurement to be taken on each tick.
         -> Plan s w m () o -- ^ Plan without input.
         -> Stream (Of (Tick s t)) m (Timeline s t,o) 
 runPlan measurement p = runPlanK measurement p () 
 
+-- | Like 'runPlan', but for 'Arrow'-like 'Plan's that take inputs.
 runPlanK :: Monad m 
          => m t -- ^ Monadic measurement to be taken on each tick.
          -> Plan s w m i o -- ^ Plan that takes input.
