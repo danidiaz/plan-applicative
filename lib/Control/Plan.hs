@@ -23,8 +23,8 @@ Some possible use cases:
 
 - If your script requires files that must be already present in the file
   system, use 'foretell' to annotate each 'Plan' action that requires a file,
-  then get the list of files using 'getSteps' and 'foldMap', and check that
-  they all exist before running the 'Plan' with 'runPlan'.
+  then get the global list of files using 'getSteps' and 'foldMap', and check
+  that they all exist before running the 'Plan' with 'runPlan'.
 
 - Get progress updates for your script by declaring (possibly nested) steps
   with 'step', running the 'Plan' with 'runPlan', and providing a notification

@@ -18,7 +18,7 @@ The first problem is solved by using a statically typed language or, for
 dynamic languages, some kind of [static](https://pypi.python.org/pypi/pyflakes)
 [analysis](https://github.com/bbatsov/rubocop) tool.
 
-For the second problem, we need to have a summary of the resources the
+For the second problem, we need to have a summary of the resources that the
 computation will require, before running the computation itself. This can be
 done by hand, adding a new check at the beginning of the script when we change
 something further down. But it's easy to forget to do so, and the initial
@@ -29,12 +29,15 @@ automatically as we composed the steps.
 For the third problem, we need a channel that notifies you whenever a step of
 the computation starts or finishes. Bonus points if nested steps are supported.
 
-
 ## Problems
 
-Currently the *ApplicativeDo* extension doesnt work well with 'Plans' because
-an extant bug in GHC [#10892](https://ghc.haskell.org/trac/ghc/ticket/10892).
+Currently the *ApplicativeDo* extension doesn't work very well with this
+package's *Applicative* because an extant bug in GHC:
+[#10892](https://ghc.haskell.org/trac/ghc/ticket/10892). Sequencing actions
+whose values are ignored gives an error.
 
 ## Inspiration
 
-[StaticArrow](http://hackage.haskell.org/package/arrows-0.4.4.1/docs/Control-Arrow-Transformer-Static.html) from the [arrows](http://hackage.haskell.org/package/arrows) package.
+[StaticArrow](http://hackage.haskell.org/package/arrows-0.4.4.1/docs/Control-Arrow-Transformer-Static.html)
+from the [arrows](http://hackage.haskell.org/package/arrows) package.
+
