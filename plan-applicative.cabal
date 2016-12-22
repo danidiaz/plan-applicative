@@ -6,8 +6,8 @@ description:         This module contains a writer-like Applicative for giving
                      annotations are available before running the computations.
 
                      It also allows tagging different parts of a computation as
-                     separate steps, so that progress notifications are emitted
-                     during execution. Optional steps are allowed. 
+                     separate steps, so that progress notifications can be
+                     emitted during execution. Optional steps are allowed. 
 license:             BSD3
 license-file:        LICENSE
 author:              Daniel Diaz
@@ -47,7 +47,8 @@ test-suite doctests
   main-is:             doctests.hs
   build-depends:
                        base          >= 4.6    && < 5,
-                       doctest       >= 0.11
+                       doctest       >= 0.11,
+                       plan-applicative
   default-language:    Haskell2010
 
 test-suite tests

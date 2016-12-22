@@ -1,8 +1,33 @@
--- | This module exports the 'Plan' Applicative.
+{-| This module exports the 'Plan' Applicative.
 
+>>> :{
+    let example :: Plan String [Int] IO () ()
+        example = 
+            step "|a|" (step "|a.a|" (foretell [1] 
+                                      *>
+                                      plan (threadDelay 1e6)) 
+                        *>
+                        step "|a.a|" (foretell [2] 
+                                      *> 
+                                      plan (threadDelay 1e6)))
+            *>
+            step "|b|" (step "|b.a|" (foretell [3] 
+                                      *>
+                                      plan (threadDelay 1e6)) 
+                        *>
+                        step "|b.b|" (foretell [4] 
+                                      *> 
+                                      plan (threadDelay 1e6)))
+    in 
+    bifoldMap id (foldMap Prelude.show) (getSteps example)
+:}
+"|a||a.a|1|a.a|2|b||b.a|3|b.b|4"
+
+-}
 module Control.Plan (
                     -- * Constructing plans
                      Plan
+                    -- $planexample 
                     ,plan
                     ,planIO
                     ,planK
@@ -57,6 +82,20 @@ import Streaming
 import Streaming.Prelude
 
 import Control.Plan.Core
+
+{- $setup
+
+>>> :set -XApplicativeDo
+>>> :set -XNumDecimals
+>>> import Control.Applicative
+>>> import Control.Plan
+>>> import Control.Concurrent(threadDelay)
+
+-}
+
+{- $planexample
+
+-}
 
 {- $extract
    Besides its usefulness with 'Timeline', 'extract' lets you get the head of a
