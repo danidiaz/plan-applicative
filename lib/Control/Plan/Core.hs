@@ -222,7 +222,7 @@ zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure sta
 --
 -- A given step might not have been reached yet. It it has been reached, either
 -- it has been skipped at a certain time, or started at a certain time. If if
--- has been started, maybe it has already finised, too.
+-- has been started, maybe it has already finished, too.
 tickToForest :: Tick s t -> Forest (Maybe (Either t (t,Maybe t)),s)
 tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progress) = 
     case progress of 
