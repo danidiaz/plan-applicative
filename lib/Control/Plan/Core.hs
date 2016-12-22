@@ -108,7 +108,7 @@ instance Monoid w => Monoid (Steps s w) where
             (w',s,mandatoriness',substeps) Seq.:< s2' -> 
                 Steps (s1 `mappend` ((w1 `mappend` w',s,mandatoriness',substeps) Seq.<| s2')) w2
 
--- | A catamorphism on 'Step's, that "destroys" the 'Step' value from the
+-- | A catamorphism on 'Steps', that "destroys" the 'Step' value from the
 -- leaves upwards.
 --
 -- Unlike 'foldMap' or 'bifoldMap', it allows a more structured analysis of the
