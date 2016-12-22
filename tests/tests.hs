@@ -3,13 +3,17 @@
 {-# LANGUAGE NumDecimals #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE Arrows #-}
 
 module Main where
 
+import Prelude hiding ((.),id)
 import Data.Monoid
 import Data.Foldable
 import Data.Tree
 
+import Control.Category
+import Control.Arrow
 import Control.Monad
 import Control.Monad.Trans.Writer
 import Control.Monad.Trans.State
@@ -32,6 +36,8 @@ tests = testGroup "Tests" [testCase "simple" testSimple
                           ,testCase "multi" testMulti
                           ,testCase "pathsMulti" testPathsMulti
                           ,testCase "runMulti" testRunMulti
+                          ,testCase "skippy" testSkippy
+                          ,testCase "runSkippy" testRunSkippy
                           ]
 
 testSimple :: IO ()
@@ -128,6 +134,56 @@ testRunMulti = do
                                                      ,Node (Nothing,"b2") []]]]
                                 forestTicks
 
--- TODO Test catamorphisms
--- TODO Test mandatoriness associations
--- TODO Test mandatoriness during execution
+skippy :: Plan String [Int] (Writer [String]) () ()
+skippy = step "a" (plan (return (Just ())))
+         >>>
+         skippable "sa" (plan (tell ["sa"]))
+         >>>
+         step "b" (plan (return Nothing))
+         >>>
+         skippable "sb" (plan (tell ["sb"]))
+
+testSkippy :: IO ()
+testSkippy = assertEqual "" [Left (Mandatory,"a")
+                            ,Left (Skippable,"sa")
+                            ,Left (Mandatory,"b")
+                            ,Left (Skippable,"sb")
+                            ]
+                            (bifoldMap (pure . Left) (map Right) . mandatoriness . getSteps $ skippy)
+
+testRunSkippy :: IO ()
+testRunSkippy = do
+      let skippy' = hoistPlan lift skippy
+          addToCounter = modify' succ >> get
+          ((ticks :> (timeline,_),_),results) = runWriter 
+                                              . flip runStateT 'a'
+                                              . Streaming.Prelude.toList 
+                                              . runPlan addToCounter $ skippy' 
+      assertEqual "timeline" [Node (Right ('b','c'),"a") []
+                             ,Node (Right ('d','e'),"sa") []
+                             ,Node (Right ('f','g'),"b") []
+                             ,Node (Left 'h',"sb") []
+                             ]
+                             (toForest (instants timeline))
+      assertEqual "timelineEnd" 'i' 
+                                (extract timeline)
+      assertEqual "ticksLen" 7
+                             (length ticks) 
+      let simpleTicks = map (\(Tick ctxs progress) -> (toList . fmap (extract.completed) $ ctxs
+                                                      ,toList . fmap current $ ctxs
+                                                      ,progressToTick' progress)) 
+                            ticks
+      assertEqual "tickTypes" [("b",["a"],Started')
+                              ,("b",["a"],Finished')
+                              ,("d",["sa"],Started')
+                              ,("d",["sa"],Finished')
+                              ,("f",["b"],Started')
+                              ,("f",["b"],Finished')
+                              ,("h",["sb"],Skipped')]
+                              simpleTicks
+      let forestTicks = take 1 . map tickToForest $ ticks
+      assertEqual "tickForests" [[Node (Just (Right ('b',Nothing)),"a") []
+                                 ,Node (Nothing,"sa") []
+                                 ,Node (Nothing,"b") []
+                                 ,Node (Nothing,"sb") []]]
+                                forestTicks
