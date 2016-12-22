@@ -1,5 +1,5 @@
--- | If you  manipulate thr internals of `Plan` to add fake steps, bad things
--- might happen.
+-- | Prefer using the main module. If you  manipulate the internals of `Plan`
+-- to add fake steps, bad things might happen.
 
 {-# language DeriveFunctor #-}
 {-# language DeriveFoldable #-}
@@ -34,6 +34,17 @@ import Streaming (hoist)
 import qualified Streaming.Prelude
 import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
+-- | A computation that takes inputs of type @i@ and produces outputs of type
+-- @o@ working in the underlying monad @m@. The 'Applicative' instance cares
+-- only about the outputs, the 'Arrow' instance cares about both inputs and
+-- outputs.
+--
+-- Parts of the computation can be labeled as steps with tags of type @s@. 
+--
+-- Computations can have monoidal resource annotations of type @w@.
+--
+-- The structure of steps and the monoidal annotations can be inspected before
+-- executing the computations.
 data Plan s w m i o = Plan (Steps s w) (Star (Stream (Of Tick') m) i o) deriving Functor
 
 instance (Monoid w,Monad m) => Applicative (Plan s w m i) where
@@ -136,15 +147,19 @@ skippable s (Plan forest (Star f)) =
 foretell :: (Monad m) => w -> Plan s w m i ()
 foretell w = Plan (Steps mempty w) (pure ())  
 
+-- | Lift a monadic action to a 'Plan'. The input type remains polymorphic.
 plan :: (Monoid w,Monad m) => m o -> Plan s w m i o
 plan x = Plan mempty (Star (const (lift x))) 
 
+-- | Lift an 'IO' action to a 'Plan'. The input type remains polymorphic.
 planIO :: (Monoid w,MonadIO m) => IO o -> Plan s w m i o
 planIO x = Plan mempty (Star (const (liftIO x))) 
 
+-- | Lift a Kleisli arrow to a 'Plan'.
 planK :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
 planK f = Plan mempty (Star (lift . f)) 
 
+-- | Lift a Kleisli arrow working in 'IO' to a 'Plan'.
 planKIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
 planKIO f = Plan mempty (Star (liftIO . f)) 
 
@@ -205,9 +220,11 @@ pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
 skippedToForest :: Forest c -> t -> Forest (Maybe (Either t (t,Maybe t)),c)
 skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
 
+-- | Forget that there is a plan, get the underlying monadic action.
 unliftPlan :: Monad m => Plan s w m () o -> m o
 unliftPlan p = extract <$> effects (runPlanK (pure ()) p ())
 
+-- | Forget that there is a plan, get the underlying Kleisli arrow.
 unliftPlanK :: Monad m => Plan s w m i o -> i -> m o
 unliftPlanK p i = extract <$> effects (runPlanK (pure ()) p i)
 
@@ -343,8 +360,15 @@ data RunState s t = RunState !(Seq (t,s,Either (Forest s) (Timeline s t)))
                              !(Forest s) 
                              ![Context s t]
 
+-- | Instances of 'Lasagna' are like 'Data.Tree.Forest's where each list of
+-- sibling nodes of type @n@ is surrounded and interspersed with annotations of
+-- type @a@. Some instances might add extra information to each node, or
+-- allow alternative branches.
 class (Bitraversable l) => Lasagna l where
-    paths    :: l n a -> l (NonEmpty n) a
+    -- | Substitute each node with the ascending path towards its topmost
+    -- parent.
+    paths    :: l n a -> l (NonEmpty n) a 
+    -- | Forget about the annotations and return the underlying 'Data.Tree.Forest'.
     toForest :: l n a -> Forest n
 
 instance Lasagna Steps where
@@ -362,6 +386,7 @@ instance Lasagna Timeline where
         in foldTimeline' algebra steps []
     toForest (Timeline past _) = fmap (\(_,c,timeline') -> Node c (either id toForest timeline')) (toList past)
 
+-- | A 'Data.Tree.Forest' is a 'Lasagna' for which no annotations exist.
 instance Lasagna (Clown (Compose [] Tree)) where
     paths (Clown (Compose forest)) = (Clown (Compose (fmap (inheritTree []) forest)))
     toForest (Clown (Compose forest)) = forest 

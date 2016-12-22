@@ -1,7 +1,13 @@
 name:                plan-applicative
 version:             1.0.0.0
-synopsis:            Applicative/Arrow for progress tracking and static analysis.
-description:         A writer-like Applicative/Arrow for progress tracking and static analysis.
+synopsis:            Applicative/Arrow for resource estimation and progress tracking.
+description:         This module contains a writer-like Applicative for giving
+                     monoidal annotations to underlying computations. The
+                     annotations are available before running the computations.
+
+                     It also allows tagging different parts of a computation as
+                     separate steps, so that progress notifications are emitted
+                     during execution. Optional steps are allowed. 
 license:             BSD3
 license-file:        LICENSE
 author:              Daniel Diaz

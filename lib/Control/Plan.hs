@@ -43,8 +43,10 @@ module Control.Plan (
                     ,Data.Bifoldable.bifoldMap
                     ,Data.Bitraversable.bitraverse
                     ,Control.Comonad.extract
+                    -- $extract
                     ,Streaming.hoist
                     ,Streaming.Prelude.effects
+                    -- $effects
                     ) where
 
 import Data.Bifunctor
@@ -55,3 +57,13 @@ import Streaming
 import Streaming.Prelude
 
 import Control.Plan.Core
+
+{- $extract
+   Besides its usefulness with 'Timeline', 'extract' lets you get the head of a
+   'NonEmpty' or the second element of a tuple.
+-}
+
+{- $effects
+   'effects' lets you ignore all the update notifications while running a plan,
+   when you are only interested in the final 'Timeline' and the result.
+-}

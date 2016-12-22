@@ -1,6 +1,6 @@
 # plan-applicative
 
-A writer-like Applicative/Arrow for tracking progress and estimating resources.
+A writer-like Applicative/Arrow for resource estimation and progress tracking.
 
 ## Motivation
 
