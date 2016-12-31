@@ -3,18 +3,17 @@
 >>> :{
     let example :: Plan String [Int] IO () ()
         example = 
-            step "(a)" (step "(a.a)" (foretell [1] *>
-                                      plan (threadDelay 1e6)) *>
-                        step "(a.b)" (foretell [2] *>
-                                      plan (threadDelay 1e6))) *>
-            step "(b)" (step "(b.a)" (foretell [3] *>
-                                      plan (threadDelay 1e6)) *>
-                        step "(b.b)" (foretell [4] *>
-                                      plan (threadDelay 1e6)))
+            step "a" (step "b" (foretell [1] *> plan (threadDelay 1e6)) 
+                      *>
+                      step "c" (foretell [2] *> plan (threadDelay 1e6))) 
+            *>
+            step "d" (step "e" (foretell [3] *> plan (threadDelay 1e6)) 
+                      *>
+                      step "f" (foretell [4] *> plan (threadDelay 1e6)))
     in 
     bifoldMap id (foldMap Prelude.show) (getSteps example)
 :}
-"(a)(a.a)1(a.b)2(b)(b.a)3(b.b)4"
+"ab1c2de3f4"
 
 Some possible use cases:
 
@@ -28,14 +27,13 @@ Some possible use cases:
 
 - Get progress updates for your script by declaring (possibly nested) steps
   with 'step', running the 'Plan' with 'runPlan', and providing a notification
-  callback with 'onTick', probably using 'tickToForest' and
+  callback with 'onTick', probably using 'completedness','toForest' and
   'Data.Tree.drawForest' to render the updates.
 
 - Run a 'Plan' with 'runPlan', use 'instants' an 'toForest' on the resulting
-  'Timeline' to get the durations of each step, then use 'zipSteps' on the same 
-  'Plan' and
-  run it again. Now whenever a step finishes we can know if it took more or
-  less than in the previous execution.
+  'Timeline' to get the durations of each step, then use 'zipSteps' on the same
+  'Plan' and run it again. Now whenever a step finishes we can know if it took
+  more or less than in the previous execution.
 
 -}
 module Control.Plan (
@@ -43,8 +41,8 @@ module Control.Plan (
                      Plan
                     ,plan
                     ,planIO
-                    ,planK
-                    ,planKIO
+                    ,kplan
+                    ,kplanIO
                     -- ** Declaring steps and annotations
                     ,step
                     ,skippable
@@ -65,18 +63,18 @@ module Control.Plan (
                     ,unliftPlan
                     ,runPlan
                     ,onTick
-                    ,tickToForest
                     ,Tick(..)
+                    ,completedness
                     ,Context(..)
                     ,Progress(..)
                     ,Timeline
                     ,instants
                     ,foldTimeline
                     -- ** Running arrow plans
-                    ,unliftPlanK
-                    ,runPlanK
-                    -- * The Lasagna typeclass
-                    ,Lasagna(..)
+                    ,unliftKPlan
+                    ,runKPlan
+                    -- * The Sylvan typeclass
+                    ,Sylvan(..)
                     -- * Re-exports
                     ,Data.Bifunctor.bimap
                     ,Data.Bifoldable.bifoldMap
@@ -100,6 +98,7 @@ import Control.Plan.Core
 {- $setup
 
 >>> :set -XNumDecimals
+>>> :set -XArrows
 >>> import Control.Applicative
 >>> import Control.Plan
 >>> import Control.Concurrent(threadDelay)

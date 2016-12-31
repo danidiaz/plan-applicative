@@ -11,6 +11,7 @@ import Prelude hiding ((.),id)
 import Data.Monoid
 import Data.Foldable
 import Data.Tree
+import Data.Functor.Const
 
 import Control.Category
 import Control.Arrow
@@ -23,7 +24,7 @@ import Control.Plan
 import Control.Plan.Core
 
 import Test.Tasty
-import Test.Tasty.HUnit
+import Test.Tasty.HUnit (testCase,assertEqual,assertBool)
 
 import Streaming
 import qualified Streaming.Prelude
@@ -75,8 +76,8 @@ testMulti = assertEqual "" [Left "a"
                            (bifoldMap (pure . Left) (map Right) . getSteps $ multi)
 
 testPathsMulti :: IO ()
-testPathsMulti = assertEqual "" [["a"],["a1","a"],["a2","a"],["b"],["b1","b"],["b2","b"]]
-                                (map toList . bifoldMap pure (const []) . paths . getSteps $ multi)
+testPathsMulti = assertEqual "" ["a","a1","a2","b","b1","b2"]
+                                (map toList . bifoldMap pure (const []) . getSteps $ multi)
 
 progressToTick' :: Progress s t -> Tick' 
 progressToTick' (Skipped {}) = Skipped'
@@ -118,7 +119,15 @@ testRunMulti = do
                               ,("h" ,["b"],Finished')
                               ]
                               simpleTicks
-      let forestTicks = take 3 . map tickToForest $ ticks
+      assertBool "" $ all (\tick -> bifoldMap id (const mempty) tick
+                                    ==
+                                    foldMap (foldMap id) (toForest tick))
+                          ticks
+      assertBool "" $ all (\tick -> (getConst (bitraverse (\s -> Const s) (\t -> Const mempty) tick))
+                                    ==
+                                    foldMap (foldMap id) (toForest tick))
+                          ticks
+      let forestTicks = take 3 . map (toForest . completedness) $ ticks
       assertEqual "tickForests" [[Node (Just (Right ('b',Nothing)),"a") [Node (Nothing,"a1") []
                                                                         ,Node (Nothing,"a2") []]
                                  ,Node (Nothing,"b") [Node (Nothing,"b1") []
@@ -181,7 +190,7 @@ testRunSkippy = do
                               ,("f",["b"],Finished')
                               ,("h",["sb"],Skipped')]
                               simpleTicks
-      let forestTicks = take 1 . map tickToForest $ ticks
+      let forestTicks = take 1 . map (toForest . completedness) $ ticks
       assertEqual "tickForests" [[Node (Just (Right ('b',Nothing)),"a") []
                                  ,Node (Nothing,"sa") []
                                  ,Node (Nothing,"b") []

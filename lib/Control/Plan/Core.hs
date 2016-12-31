@@ -8,6 +8,8 @@
 {-# language RankNTypes #-}
 {-# language ViewPatterns #-}
 {-# language NamedFieldPuns #-}
+{-# language LambdaCase #-}
+{-# language ApplicativeDo #-}
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
@@ -21,6 +23,7 @@ import Data.Functor.Identity
 import Data.Functor.Compose
 import Data.Tree
 import Data.List.NonEmpty (NonEmpty((:|)))
+import qualified Data.List.NonEmpty
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Profunctor (Profunctor(..),Star(..))
@@ -188,12 +191,12 @@ planIO :: (Monoid w,MonadIO m) => IO o -> Plan s w m i o
 planIO x = Plan mempty (Star (const (liftIO x))) 
 
 -- | Lift a Kleisli arrow to a 'Plan'.
-planK :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
-planK f = Plan mempty (Star (lift . f)) 
+kplan :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
+kplan f = Plan mempty (Star (lift . f)) 
 
 -- | Lift a Kleisli arrow working in 'IO' to a 'Plan'.
-planKIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
-planKIO f = Plan mempty (Star (liftIO . f)) 
+kplanIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
+kplanIO f = Plan mempty (Star (liftIO . f)) 
 
 zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
 zipSteps' forest (Steps substeps w) 
@@ -217,62 +220,51 @@ zipSteps' forest (Steps substeps w)
 zipSteps :: Forest s' -> Plan s w m i o -> Maybe (Plan (s',s) w m i o)
 zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
 
--- | Transform a 'Tick' into a form more suitable for rendering with functions
--- like 'Data.Tree.drawForest'.
+-- | A given step might not have been reached yet. It it has been reached,
+-- either it has been skipped at a certain time, or started at a certain time.
+-- If if has been started, maybe it has already finished, too.
 --
--- A given step might not have been reached yet. It it has been reached, either
--- it has been skipped at a certain time, or started at a certain time. If if
--- has been started, maybe it has already finished, too.
-tickToForest :: Tick s t -> Forest (Maybe (Either t (t,Maybe t)),s)
-tickToForest (Tick upwards@(Context {completed,current,pending}:|contexts) progress) = 
-    case progress of 
-        Skipped forest -> foldl contextToForest 
-                                ( completedToForest completed 
-                                  ++ 
-                                  [Node (Just (Left (extract completed))
-                                        ,current) 
-                                        (skippedToForest forest (extract completed))] 
-                                  ++
-                                  pendingToForest pending ) 
-                                contexts
-        Started forest -> foldl contextToForest 
-                                (pendingToForest forest) 
-                                upwards
-        Finished timeline -> foldl contextToForest 
-                                   ( completedToForest completed 
-                                     ++ 
-                                     [Node (Just (Right (extract completed,Just (extract timeline)))
-                                           ,current) 
-                                           (completedToForest timeline)] 
-                                     ++ pendingToForest pending ) 
-                                   contexts
+-- This function can be used in combination with 'toForest' and
+-- 'Data.Tree.drawForest' to render the state of each step for a 'Tick'.
+completedness :: Tick s t ->  Tick (Maybe (Either t (t,Maybe t)),s) t
+completedness (Tick (Context {completed,current,pending}:|contexts) progress) = 
+    let startingTime = extract completed
+        (progress',time') = progressCompletedness startingTime progress
+    in  Tick (Context (adapt (instants completed))
+                      (time',current)
+                      (fmap (fmap (\s -> (Nothing,s))) pending)
+              :| map (contextCompletedness (\t -> Right (t,Nothing))) contexts)  
+             progress'
 
-contextToForest :: Forest (Maybe (Either t (t,Maybe t)),s)
-                -> Context s t 
-                -> Forest (Maybe (Either t (t,Maybe t)),s)
-contextToForest below (Context {completed,current,pending}) =
-       completedToForest completed 
-    ++ [Node (Just (Right (extract completed,Nothing)),current) below] 
-    ++ pendingToForest pending
+contextCompletedness :: (t -> (Either t (t,Maybe t))) 
+                     -> Context s t 
+                     -> Context (Maybe (Either t (t,Maybe t)),s) t
+contextCompletedness tf (Context {completed,current,pending}) =
+    Context (adapt (instants completed)) 
+            (Just (tf (extract completed)),current) 
+            (fmap (fmap (\s -> (Nothing,s))) pending) 
 
-completedToForest :: Timeline c t -> Forest (Maybe (Either t (t,Maybe t)),c)
-completedToForest (toForest . instants -> forest) = fmap (fmap go) forest
-    where
-    go = Bifunctor.first (Just . bimap id (fmap Just))
+adapt :: Timeline (Either t (t,t),s) t -> Timeline (Maybe (Either t (t,Maybe t)),s) t
+adapt timeline = 
+    let go = Bifunctor.first (Just . bimap id (fmap Just))
+    in  Bifunctor.first go timeline
 
-pendingToForest :: Forest c -> Forest (Maybe (Either t (t,Maybe t)),c)
-pendingToForest forest = map (fmap (\c -> (Nothing,c))) forest
-
-skippedToForest :: Forest c -> t -> Forest (Maybe (Either t (t,Maybe t)),c)
-skippedToForest forest t = map (fmap (\c -> (Just (Left t),c))) forest
+progressCompletedness :: t -> Progress s t -> (Progress (Maybe (Either t (t,Maybe t)),s) t, Maybe (Either t (t,Maybe t)))
+progressCompletedness startingTime = \case
+    Skipped forest    -> (Skipped  $ fmap (fmap (\s -> (Just (Left startingTime),s))) forest
+                         ,Just (Left startingTime)) 
+    Started forest    -> (Started  $ fmap (fmap (\s -> (Nothing,s))) forest
+                         ,Just (Right (startingTime,Nothing)))
+    Finished timeline -> (Finished $ adapt (instants timeline)
+                         ,Just (Right (startingTime,Just (extract timeline))))
 
 -- | Forget that there is a plan, get the underlying monadic action.
 unliftPlan :: Monad m => Plan s w m () o -> m o
-unliftPlan p = extract <$> effects (runPlanK (pure ()) p ())
+unliftPlan p = extract <$> effects (runKPlan (pure ()) p ())
 
 -- | Forget that there is a plan, get the underlying Kleisli arrow.
-unliftPlanK :: Monad m => Plan s w m i o -> i -> m o
-unliftPlanK p i = extract <$> effects (runPlanK (pure ()) p i)
+unliftKPlan :: Monad m => Plan s w m i o -> i -> m o
+unliftKPlan p i = extract <$> effects (runKPlan (pure ()) p i)
 
 -- | A 'Data.Tree.Forest' of steps tags of type @s@ interspersed with
 -- measurements of type @t@.
@@ -367,6 +359,35 @@ instance Bifunctor Tick where
                 Tick (fmap (Bifunctor.first f) contexts) (Bifunctor.first f progress)
     second = fmap
 
+instance Bifoldable Tick where
+    bifoldMap g f (Tick contexts progress) = 
+        foldMap (\(Context {completed,current}) -> bifoldMap g f completed `mappend` g current) 
+                (Data.List.NonEmpty.reverse contexts)
+        `mappend`
+        bifoldMap g f progress
+        `mappend`
+        foldMap (\(Context {pending}) -> foldMap (foldMap g) pending) 
+                contexts
+
+instance Bitraversable Tick where
+    bitraverse g f (Tick contexts progress) = do
+        phase1r <- traverse (\(Context {completed,current}) -> (,) 
+                                                           <$> bitraverse g f completed
+                                                           <*> g current)
+                            (Data.List.NonEmpty.reverse contexts)
+        progress' <- bitraverse g f progress
+        phase2  <- traverse (\(Context {pending}) -> traverse (traverse g) pending) 
+                            contexts
+        pure (Tick (fmap (\((completed',current'),pending') -> Context completed' current' pending')
+                         (Data.List.NonEmpty.zip (Data.List.NonEmpty.reverse phase1r) phase2))
+                   progress')
+
+instance Sylvan Tick where
+    toForest (Tick contexts progress) = foldl ctx2forest (toForest progress) contexts
+        where
+        ctx2forest below (Context {completed,current,pending}) =
+            toForest completed ++ [Node current below] ++ pending
+
 -- | The execution of a 'Plan' can make progress by skipping a step, starting a
 -- step, or finishing a step.
 data Progress s t = Skipped  (Forest s) -- ^ Provides the substeps that were skipped.
@@ -374,11 +395,29 @@ data Progress s t = Skipped  (Forest s) -- ^ Provides the substeps that were ski
                   | Finished (Timeline s t) -- ^ Provides a 'Timeline' of measurements for the completed substeps. 'extract' for the 'Timeline' gives the finishing measurement for the current step.
                     deriving (Functor,Foldable,Traversable,Eq,Show) 
 
+instance Sylvan Progress where
+    toForest progress = 
+        case progress of 
+            Skipped forest -> forest
+            Started forest -> forest
+            Finished timeline -> toForest timeline
+
 instance Bifunctor Progress where
     first f (Skipped forest) = Skipped (fmap (fmap f) forest)
     first f (Started forest) = Skipped (fmap (fmap f) forest)
     first f (Finished timeline) = Finished (bimap f id timeline)
     second = fmap
+
+instance Bifoldable Progress where
+    bifoldMap g _ (Skipped forest) = foldMap (foldMap g) forest
+    bifoldMap g _ (Started forest) = foldMap (foldMap g) forest
+    bifoldMap g f (Finished timeline) = bifoldMap g f timeline 
+
+instance Bitraversable Progress where
+    bitraverse g _ (Skipped forest) = Skipped <$> traverse (traverse g) forest
+    bitraverse g _ (Started forest) = Started <$> traverse (traverse g) forest
+    bitraverse g f (Finished timeline) = Finished <$> (bitraverse g f) timeline
+
 
 -- | Specify a monadic callback for processing each 'Tick' update.
 onTick :: Monad m => (tick -> m ()) -> Stream (Of tick) m r -> m r
@@ -400,15 +439,15 @@ runPlan :: Monad m
         => m t -- ^ Monadic measurement to be taken on each tick.
         -> Plan s w m () o -- ^ Plan without input.
         -> Stream (Of (Tick s t)) m (Timeline s t,o) 
-runPlan measurement p = runPlanK measurement p () 
+runPlan measurement p = runKPlan measurement p () 
 
 -- | Like 'runPlan', but for 'Arrow'-like 'Plan's that take inputs.
-runPlanK :: Monad m 
+runKPlan :: Monad m 
          => m t -- ^ Monadic measurement to be taken on each tick.
          -> Plan s w m i o -- ^ Plan that takes input.
          -> i 
          -> Stream (Of (Tick s t)) m (Timeline s t,o)
-runPlanK makeMeasure (Plan steps (Star f)) initial = 
+runKPlan makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                measure <- lift makeMeasure
@@ -443,49 +482,29 @@ data RunState s t = RunState !(Seq (t,s,Either (Forest s) (Timeline s t)))
                              !(Forest s) 
                              ![Context s t]
 
--- | Instances of 'Lasagna' are like 'Data.Tree.Forest's where each list of
--- sibling nodes of type @n@ is surrounded and interspersed with annotations of
--- type @a@. Some instances might add extra information to each node, or
--- allow alternative branches.
-class (Bitraversable l) => Lasagna l where
-    -- | Substitute each node with the ascending path towards its topmost
-    -- parent.
-    paths    :: l n a -> l (NonEmpty n) a 
+-- | Instances of 'Sylvan' are 'Data.Tree.Forest's with nodes of type @n@,
+-- interspersed with annotations of type @a@, and perhaps some other extra
+-- information.
+--
+-- They must satisfy
+--
+-- > bifoldMap f (\_ -> mempty) s == foldMap (foldMap f) (toForest s)
+class (Bitraversable l) => Sylvan l where
     -- | Forget about the annotations and return the underlying 'Data.Tree.Forest'.
     toForest :: l n a -> Forest n
 
 -- | 'toForest' forgets about the annotations and returns a 'Forest' of step
 -- tags.
-instance Lasagna Steps where
-    paths steps = 
-        let algebra ws r acc = Steps (fmap (downwards acc) ws) r  
-            downwards acc (w',s',mandatoriness',func) = (w',s':|acc,mandatoriness',func (s':acc))
-        in foldSteps' algebra steps []
+instance Sylvan Steps where
     toForest (Steps steps _) = 
         map (\(_,e,_,steps') -> Node e (toForest steps')) (toList steps) 
 
 -- | 'toForest' forgets about the measurements and returns a 'Forest' of step
 -- tags.
-instance Lasagna Timeline where
-    paths steps = 
-        let algebra ws r acc = Timeline (fmap (downwards acc) ws) r  
-            downwards acc (w',s',funce) = (w',s':|acc,bimap (fmap (inheritTree (s':acc))) (\f -> f (s':acc)) funce)
-        in foldTimeline' algebra steps []
+instance Sylvan Timeline where
     toForest (Timeline past _) = fmap (\(_,c,timeline') -> Node c (either id toForest timeline')) (toList past)
 
--- | A 'Data.Tree.Forest' is a 'Lasagna' for which no annotations exist.
-instance Lasagna (Clown (Compose [] Tree)) where
-    paths (Clown (Compose forest)) = (Clown (Compose (fmap (inheritTree []) forest)))
+-- | A 'Data.Tree.Forest' is a 'Sylvan' for which no annotations exist.
+instance Sylvan (Clown (Compose [] Tree)) where
     toForest (Clown (Compose forest)) = forest 
-
-inheritTree :: [a] -> Tree a -> Tree (NonEmpty a)
-inheritTree acc tree = foldTree' algebra tree acc where
-    algebra :: a -> [[a] -> Tree (NonEmpty a)] -> [a] -> Tree (NonEmpty a)
-    algebra a fs as = Node (a:|as) (fs <*> [a:as]) 
-
--- | A tree catamorphism. This function already exists in the latest version of
--- "containers"
-foldTree' :: (a -> [b] -> b) -> Tree a -> b
-foldTree' f = go where
-    go (Node x ts) = f x (map go ts)
 
