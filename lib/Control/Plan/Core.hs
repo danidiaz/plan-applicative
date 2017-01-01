@@ -37,6 +37,17 @@ import Streaming (hoist)
 import qualified Streaming.Prelude
 import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 
+{- $setup
+
+>>> :set -XArrows
+>>> :set -XTypeApplications
+>>> import Control.Applicative
+>>> import Control.Plan
+>>> import Data.Tree
+>>> import Text.Read(readMaybe)
+
+-}
+
 -- | A computation that takes inputs of type @i@ and produces outputs of type
 -- @o@ working in the underlying monad @m@. The 'Applicative' instance cares
 -- only about the outputs, the 'Arrow' instance cares about both inputs and
@@ -72,8 +83,10 @@ instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
 data Steps s w = Steps !(Seq (w,s,Mandatoriness,Steps s w)) w 
                deriving (Functor,Foldable,Traversable,Eq,Show)
 
--- | Steps of 'Plan's constructed in 'Applicative' fashion are always
--- 'Mandatory'. Only steps declared with 'skippable' are optional.
+{- Steps of 'Plan's constructed in 'Applicative' fashion are always
+  'Mandatory'. Only steps declared with 'skippable' are optional.
+
+-}
 data Mandatoriness = Skippable
                    | Mandatory
                    deriving (Show,Eq,Ord)
@@ -161,12 +174,26 @@ step s (Plan forest (Star f)) =
     Plan (Steps (Seq.singleton (mempty,s,Mandatory,forest)) mempty) 
          (Star (\x -> yield Started' *> f x <* yield Finished'))
 
--- | Declare an optional step by wrapping an existing arrow plan. The step will
--- only be executed when the input is 'Just'.
---
--- This function only makes sense when using the 'Arrow' instance of 'Plan',
--- because for 'Applicative's an effect cannot depend on previously obtained
--- values.
+{-| Declare an optional step by wrapping an existing arrow plan. The step will only
+    be executed when the input is 'Just'.
+
+    This function only makes sense when using the 'Arrow' instance of 'Plan',
+    because for 'Applicative's an effect cannot depend on previously obtained
+    values.
+
+>>> :{
+    let example :: Plan String () IO () ()
+        example = proc () -> do 
+            i <- step "reading" (plan (readMaybe @Int <$> getLine)) -< () 
+            skippable "writing" (kplan print) -< i
+    in  putStr . drawForest . fmap (fmap show) . toForest . mandatoriness . getSteps $ example
+    :}
+(Mandatory,"reading")
+<BLANKLINE>
+(Skippable,"writing")
+<BLANKLINE>
+
+-}
 skippable :: (Monoid w,Monad m) => s -> Plan s w m i o -> Plan s w m (Maybe i) ()
 skippable s (Plan forest (Star f)) = 
     Plan (Steps (Seq.singleton (mempty,s,Skippable,forest)) mempty) 

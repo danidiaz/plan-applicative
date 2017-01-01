@@ -38,6 +38,11 @@ whose values are ignored gives an error.
 
 ## Inspiration
 
-[StaticArrow](http://hackage.haskell.org/package/arrows-0.4.4.1/docs/Control-Arrow-Transformer-Static.html)
-from the [arrows](http://hackage.haskell.org/package/arrows) package.
+- [StaticArrow](http://hackage.haskell.org/package/arrows-0.4.4.1/docs/Control-Arrow-Transformer-Static.html)
+  from the [arrows](http://hackage.haskell.org/package/arrows) package.
+
+- Not exactly an inspiration (as I don't understand the stuff well enough) but
+  Tomas Petricek's work on ["coeffects"](http://tomasp.net/coeffects/) seems
+  relevant for helping applications to "fail early". See section 1.1 of his
+  [thesis](http://tomasp.net/academic/theses/coeffects/thesis.pdf).
 

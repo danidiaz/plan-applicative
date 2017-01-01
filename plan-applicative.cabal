@@ -1,5 +1,5 @@
 name:                plan-applicative
-version:             2.0.0.0
+version:             2.0.0.1
 synopsis:            Applicative/Arrow for resource estimation and progress tracking.
 description:         This module contains a writer-like Applicative for giving
                      monoidal annotations to underlying computations. The
@@ -43,12 +43,13 @@ library
 test-suite doctests
   type:                exitcode-stdio-1.0
   ghc-options:         -Wall -threaded
-  hs-source-dirs:      tests
+  hs-source-dirs:      tests,lib
   main-is:             doctests.hs
+  other-modules:       Control.Plan
+                       Control.Plan.Core
   build-depends:
                        base          >= 4.6    && < 5,
-                       doctest       >= 0.11,
-                       plan-applicative
+                       doctest       >= 0.11
   default-language:    Haskell2010
 
 test-suite tests

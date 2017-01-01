@@ -12,7 +12,7 @@
                       step "f" (foretell [4] *> plan (threadDelay 1e6)))
     in 
     bifoldMap id (foldMap Prelude.show) (getSteps example)
-:}
+    :}
 "ab1c2de3f4"
 
 Some possible use cases:
