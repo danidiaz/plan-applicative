@@ -16,5 +16,6 @@ cabal.sandbox.config
 *.hp
 *.eventlog
 .stack-work/
+.ghc.*
 cabal.project.local
 Session.vim

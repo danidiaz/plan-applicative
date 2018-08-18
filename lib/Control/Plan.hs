@@ -38,52 +38,57 @@ Some possible use cases:
 -}
 module Control.Plan (
                     -- * Constructing plans
-                     Plan
-                    ,plan
-                    ,planIO
-                    ,kplan
-                    ,kplanIO
+                      Plan
+                    , plan
+                    , plan'
+                    , planIO
+                    , planIO'
                     -- ** Declaring steps and annotations
-                    ,step
-                    ,skippable
-                    ,foretell
+                    , step
+                    , skippable
+                    , foretell
                     -- * Analyzing plans
-                    ,getSteps
-                    ,Steps
-                    ,mandatoriness
-                    ,Mandatoriness(..)
-                    ,foldSteps
+                    , getSteps
+                    , Steps
+                    , mandatoriness
+                    , Mandatoriness(..)
+                    , foldSteps
                     -- * Adapting plans
                     -- $adapting
-                    ,bimapSteps
-                    ,zoomSteps
-                    ,zipSteps
-                    ,hoistPlan
+                    , bimapSteps
+                    , zoomSteps
+                    , zipSteps
+                    , hoistPlan
                     -- * Running plans
-                    ,unliftPlan
-                    ,runPlan
-                    ,onTick
-                    ,Tick(..)
-                    ,completedness
-                    ,Context(..)
-                    ,Progress(..)
-                    ,Timeline
-                    ,instants
-                    ,foldTimeline
-                    -- ** Running arrow plans
-                    ,unliftKPlan
-                    ,runKPlan
+                    , unliftPlan
+                    , unliftPlan'
+                    , runPlan
+                    , runPlan'
+                    , onTick
+                    , Tick(..)
+                    , completedness
+                    , Context(..)
+                    , Progress(..)
+                    , Timeline
+                    , instants
+                    , foldTimeline
                     -- * The Sylvan typeclass
-                    ,Sylvan(..)
+                    , Sylvan(..)
                     -- * Re-exports
-                    ,Data.Bifunctor.bimap
-                    ,Data.Bifoldable.bifoldMap
-                    ,Data.Bitraversable.bitraverse
-                    ,Control.Comonad.extract
+                    , Data.Bifunctor.bimap
+                    , Data.Bifoldable.bifoldMap
+                    , Data.Bitraversable.bitraverse
+                    , Control.Comonad.extract
                     -- $extract
-                    ,Streaming.hoist
-                    ,Streaming.Prelude.effects
+                    , Streaming.hoist
+                    , Streaming.Prelude.effects
                     -- $effects
+
+                    -- * Deprecated functions
+                    , kplan
+                    , kplanIO
+                    , unliftKPlan
+                    , runKPlan
                     ) where
 
 import Data.Bifunctor

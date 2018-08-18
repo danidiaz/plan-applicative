@@ -1,19 +1,20 @@
 -- | Prefer using the main module. If you  manipulate the internals of `Plan`
 -- to add fake steps, bad things might happen.
 
-{-# language DeriveFunctor #-}
-{-# language DeriveFoldable #-}
-{-# language DeriveTraversable #-}
-{-# language FlexibleInstances #-}
-{-# language RankNTypes #-}
-{-# language ViewPatterns #-}
-{-# language NamedFieldPuns #-}
-{-# language LambdaCase #-}
-{-# language ApplicativeDo #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ApplicativeDo #-}
 module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
+import Data.Semigroup()
 import Data.Foldable
 import Data.Bifoldable
 import Data.Bitraversable
@@ -116,13 +117,16 @@ instance Bitraversable Steps where
         innertraverse (w',e,mandatoriness',substeps) = 
             (,,,) <$> f w' <*> g e <*> pure mandatoriness' <*> bitraverse g f substeps
     
+instance Semigroup w => Semigroup (Steps s w) where
+    Steps s1 w1 <> Steps s2 w2 = 
+        case Seq.viewl s2 of
+            Seq.EmptyL -> Steps s1 (w1 <> w2)
+            (w',s,mandatoriness',substeps) Seq.:< s2' -> 
+                Steps (s1 <> ((w1 <> w',s,mandatoriness',substeps) Seq.<| s2')) w2
+
 instance Monoid w => Monoid (Steps s w) where
     mempty = Steps mempty mempty
-    Steps s1 w1 `mappend` Steps s2 w2 = 
-        case Seq.viewl s2 of
-            Seq.EmptyL -> Steps s1 (w1 `mappend` w2)
-            (w',s,mandatoriness',substeps) Seq.:< s2' -> 
-                Steps (s1 `mappend` ((w1 `mappend` w',s,mandatoriness',substeps) Seq.<| s2')) w2
+    mappend = (<>)
 
 -- | A catamorphism on 'Steps', that "destroys" the 'Steps' value from the
 -- leaves upwards.
@@ -185,7 +189,7 @@ step s (Plan forest (Star f)) =
     let example :: Plan String () IO () ()
         example = proc () -> do 
             i <- step "reading" (plan (readMaybe @Int <$> getLine)) -< () 
-            skippable "writing" (kplan print) -< i
+            skippable "writing" (plan' print) -< i
     in  putStr . drawForest . fmap (fmap show) . toForest . mandatoriness . getSteps $ example
     :}
 (Mandatory,"reading")
@@ -209,27 +213,35 @@ skippable s (Plan forest (Star f)) =
 foretell :: (Monad m) => w -> Plan s w m i ()
 foretell w = Plan (Steps mempty w) (pure ())  
 
--- | Lift a monadic action to a 'Plan'. The input type remains polymorphic.
+-- | Lift a monadic action to a 'Plan'. The input type @i@ remains polymorphic, usually it will become @()@.
 plan :: (Monoid w,Monad m) => m o -> Plan s w m i o
 plan x = Plan mempty (Star (const (lift x))) 
 
--- | Lift an 'IO' action to a 'Plan'. The input type remains polymorphic.
+-- | Lift a Kleisli arrow to a 'Plan'.
+plan' :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
+plan' f = Plan mempty (Star (lift . f)) 
+
+{-# DEPRECATED kplan "Use plan' instead." #-}
+kplan :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
+kplan = plan'
+
+-- | Lift an 'IO' action to a 'Plan'. The input type @i@ remains polymorphic, usually it will become @()@.
 planIO :: (Monoid w,MonadIO m) => IO o -> Plan s w m i o
 planIO x = Plan mempty (Star (const (liftIO x))) 
 
--- | Lift a Kleisli arrow to a 'Plan'.
-kplan :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
-kplan f = Plan mempty (Star (lift . f)) 
-
 -- | Lift a Kleisli arrow working in 'IO' to a 'Plan'.
-kplanIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
-kplanIO f = Plan mempty (Star (liftIO . f)) 
+planIO' :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
+planIO' f = Plan mempty (Star (liftIO . f)) 
 
-zipSteps' :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
-zipSteps' forest (Steps substeps w) 
+{-# DEPRECATED kplanIO "Use planIO' instead." #-}
+kplanIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
+kplanIO = planIO'
+
+zipStepsi :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
+zipStepsi forest (Steps substeps w) 
     | length forest == length substeps = 
         let paired = Seq.zipWith (\(Node a subforest) (w',s,mandatory,substeps') -> 
-                                        (w',(a,s),mandatory,zipSteps' subforest substeps'))
+                                        (w',(a,s),mandatory,zipStepsi subforest substeps'))
                                  (Seq.fromList forest) 
                                  substeps 
             go (w',s,mandatory,ms) = fmap (\x -> (w',s,mandatory,x)) ms
@@ -245,7 +257,7 @@ zipSteps' forest (Steps substeps w)
 -- for example the time duration of the step in a previous execution of the
 -- plan. See 'Timeline', 'instants', and 'toForest'.
 zipSteps :: Forest s' -> Plan s w m i o -> Maybe (Plan (s',s) w m i o)
-zipSteps forest (Plan steps star) = Plan <$> zipSteps' forest steps <*> pure star 
+zipSteps forest (Plan steps star) = Plan <$> zipStepsi forest steps <*> pure star 
 
 -- | A given step might not have been reached yet. It it has been reached,
 -- either it has been skipped at a certain time, or started at a certain time.
@@ -290,8 +302,12 @@ unliftPlan :: Monad m => Plan s w m () o -> m o
 unliftPlan p = extract <$> effects (runKPlan (pure ()) p ())
 
 -- | Forget that there is a plan, get the underlying Kleisli arrow.
+unliftPlan' :: Monad m => Plan s w m i o -> i -> m o
+unliftPlan' p i = extract <$> effects (runKPlan (pure ()) p i)
+
+{-# DEPRECATED unliftKPlan "Use unliftPlan' instead." #-}
 unliftKPlan :: Monad m => Plan s w m i o -> i -> m o
-unliftKPlan p i = extract <$> effects (runKPlan (pure ()) p i)
+unliftKPlan = unliftPlan'
 
 -- | A 'Data.Tree.Forest' of steps tags of type @s@ interspersed with
 -- measurements of type @t@.
@@ -466,15 +482,15 @@ runPlan :: Monad m
         => m t -- ^ Monadic measurement to be taken on each tick.
         -> Plan s w m () o -- ^ Plan without input.
         -> Stream (Of (Tick s t)) m (Timeline s t,o) 
-runPlan measurement p = runKPlan measurement p () 
+runPlan measurement p = runPlan' measurement p () 
 
 -- | Like 'runPlan', but for 'Arrow'-like 'Plan's that take inputs.
-runKPlan :: Monad m 
+runPlan' :: Monad m 
          => m t -- ^ Monadic measurement to be taken on each tick.
          -> Plan s w m i o -- ^ Plan that takes input.
          -> i 
          -> Stream (Of (Tick s t)) m (Timeline s t,o)
-runKPlan makeMeasure (Plan steps (Star f)) initial = 
+runPlan' makeMeasure (Plan steps (Star f)) initial = 
       let go state stream = 
             do n <- lift (next stream)
                measure <- lift makeMeasure
@@ -504,6 +520,14 @@ runKPlan makeMeasure (Plan steps (Star f)) initial =
                            stream'
                    _ -> error "should never happen"
       in go (RunState mempty (toForest steps) []) (f initial)
+
+{-# DEPRECATED runKPlan "Use runPlan' instead." #-}
+runKPlan :: Monad m 
+         => m t -- ^ Monadic measurement to be taken on each tick.
+         -> Plan s w m i o -- ^ Plan that takes input.
+         -> i 
+         -> Stream (Of (Tick s t)) m (Timeline s t,o)
+runKPlan = runPlan'
 
 data RunState s t = RunState !(Seq (t,s,Either (Forest s) (Timeline s t)))
                              !(Forest s) 
