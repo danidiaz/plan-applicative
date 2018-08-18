@@ -14,7 +14,7 @@ module Control.Plan.Core (module Control.Plan.Core) where
 
 import Prelude hiding ((.),id)
 import qualified Data.Bifunctor as Bifunctor
-import Data.Semigroup()
+import Data.Semigroup
 import Data.Foldable
 import Data.Bifoldable
 import Data.Bitraversable
