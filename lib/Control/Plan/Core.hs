@@ -62,7 +62,7 @@ import Streaming.Prelude (Stream,Of(..),yield,next,effects)
 -- executing the 'Plan'.
 data Plan s w m i o = Plan (Steps s w) (Star (Stream (Of Tick') m) i o) deriving Functor
 
-instance (Monoid w,Monad m) => Applicative (Plan s w m i) where
+instance (Semigroup w,Monoid w,Monad m) => Applicative (Plan s w m i) where
     pure x = Plan mempty (pure x)
     Plan forest1 f <*> Plan forest2 x = Plan (forest1 `mappend` forest2) (f <*> x)
 
@@ -75,7 +75,7 @@ instance (Monoid w,Monad m) => Arrow (Plan s w m) where
     arr f = Plan mempty (Star (runKleisli (arr f)))
     first (Plan forest (Star f)) =  Plan forest (Star (runKleisli (first (Kleisli f))))
 
-instance (Monoid w,Monad m) => Profunctor (Plan s w m) where
+instance (Semigroup w,Monoid w,Monad m) => Profunctor (Plan s w m) where
     lmap f p = f ^>> p
     rmap f p = p >>^ f
 
@@ -214,7 +214,7 @@ foretell :: (Monad m) => w -> Plan s w m i ()
 foretell w = Plan (Steps mempty w) (pure ())  
 
 -- | Lift a monadic action to a 'Plan'. The input type @i@ remains polymorphic, usually it will become @()@.
-plan :: (Monoid w,Monad m) => m o -> Plan s w m i o
+plan :: (Semigroup w,Monoid w,Monad m) => m o -> Plan s w m i o
 plan x = Plan mempty (Star (const (lift x))) 
 
 -- | Lift a Kleisli arrow to a 'Plan'.
@@ -222,15 +222,15 @@ plan' :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
 plan' f = Plan mempty (Star (lift . f)) 
 
 {-# DEPRECATED kplan "Use plan' instead." #-}
-kplan :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
+kplan :: (Semigroup w,Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
 kplan = plan'
 
 -- | Lift an 'IO' action to a 'Plan'. The input type @i@ remains polymorphic, usually it will become @()@.
-planIO :: (Monoid w,MonadIO m) => IO o -> Plan s w m i o
+planIO :: (Semigroup w,Monoid w,MonadIO m) => IO o -> Plan s w m i o
 planIO x = Plan mempty (Star (const (liftIO x))) 
 
 -- | Lift a Kleisli arrow working in 'IO' to a 'Plan'.
-planIO' :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
+planIO' :: (Semigroup w,Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
 planIO' f = Plan mempty (Star (liftIO . f)) 
 
 {-# DEPRECATED kplanIO "Use planIO' instead." #-}
