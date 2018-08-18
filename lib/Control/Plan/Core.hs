@@ -66,12 +66,12 @@ instance (Semigroup w,Monoid w,Monad m) => Applicative (Plan s w m i) where
     pure x = Plan mempty (pure x)
     Plan forest1 f <*> Plan forest2 x = Plan (forest1 `mappend` forest2) (f <*> x)
 
-instance (Monoid w,Monad m) => Category (Plan s w m) where
+instance (Semigroup w,Monoid w,Monad m) => Category (Plan s w m) where
     id = Plan mempty (Star (runKleisli id))
     (Plan forest1 (Star f1)) . (Plan forest2 (Star f2)) = 
         Plan (forest2 `mappend` forest1) (Star (f2 >=> f1))
 
-instance (Monoid w,Monad m) => Arrow (Plan s w m) where
+instance (Semigroup w,Monoid w,Monad m) => Arrow (Plan s w m) where
     arr f = Plan mempty (Star (runKleisli (arr f)))
     first (Plan forest (Star f)) =  Plan forest (Star (runKleisli (first (Kleisli f))))
 
@@ -218,7 +218,7 @@ plan :: (Semigroup w,Monoid w,Monad m) => m o -> Plan s w m i o
 plan x = Plan mempty (Star (const (lift x))) 
 
 -- | Lift a Kleisli arrow to a 'Plan'.
-plan' :: (Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
+plan' :: (Semigroup w,Monoid w,Monad m) => (i -> m o) -> Plan s w m i o
 plan' f = Plan mempty (Star (lift . f)) 
 
 {-# DEPRECATED kplan "Use plan' instead." #-}
@@ -234,7 +234,7 @@ planIO' :: (Semigroup w,Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
 planIO' f = Plan mempty (Star (liftIO . f)) 
 
 {-# DEPRECATED kplanIO "Use planIO' instead." #-}
-kplanIO :: (Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
+kplanIO :: (Semigroup w,Monoid w,MonadIO m) => (i -> IO o) -> Plan s w m i o
 kplanIO = planIO'
 
 zipStepsi :: Forest a -> Steps r w -> Maybe (Steps (a,r) w)
