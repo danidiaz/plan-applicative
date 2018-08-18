@@ -18,4 +18,5 @@ cabal.sandbox.config
 .stack-work/
 .ghc.*
 cabal.project.local
+cabal.project.local~
 Session.vim

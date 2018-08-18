@@ -6,4 +6,3 @@ script: "cabal new-test"
 ghc:
     - "8.4.1"
     - "7.10"
-    - "7.8"
