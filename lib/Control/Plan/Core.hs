@@ -124,7 +124,7 @@ instance Semigroup w => Semigroup (Steps s w) where
             (w',s,mandatoriness',substeps) Seq.:< s2' -> 
                 Steps (s1 <> ((w1 <> w',s,mandatoriness',substeps) Seq.<| s2')) w2
 
-instance Monoid w => Monoid (Steps s w) where
+instance (Semigroup w,Monoid w) => Monoid (Steps s w) where
     mempty = Steps mempty mempty
     mappend = (<>)
 
